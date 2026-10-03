@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Processus-Gaussiens</title>
+  <meta name="description" content="Importez vos données et explorez les résultats de votre modèle par processus gaussien, en local.">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/plotly.min.js" defer></script>
+  <script src="/static/exploration.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<main>
+  <div class="page-heading"><div><p class="eyebrow">MODÉLISATION PAR PROCESSUS GAUSSIEN</p><h1>Trouvez les lois qui régissent vos données</h1><p class="intro">Importez, lancez l’analyse et explorez vos résultats.</p></div></div>
+  <nav class="workflow-nav" aria-label="Étapes de l’analyse">
+    <ol class="steps">
+      <li class="active" id="step1"><button type="button" data-step="1" aria-current="step" aria-controls="dropzone"><span>1</span>Importer les données</button></li>
+      <li id="step2"><button type="button" data-step="2" aria-controls="config" disabled><span>2</span>Configurer le modèle</button></li>
+      <li id="step3"><button type="button" data-step="3" aria-controls="results" disabled><span>3</span>Explorer les résultats</button></li>
+    </ol>
+    <button id="new-model" class="secondary-button" type="button" hidden>Nouveau modèle</button>
+  </nav>
+  <div id="error" class="error" role="alert" hidden></div>
+  <div class="workspace">
+    <aside id="input-panel" class="panel input-panel">
+      <div class="section-heading"><span class="section-number">01</span><h2>Vos données</h2></div>
+      <label class="dropzone" id="dropzone" for="file-input"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg><strong>Glissez votre fichier ici</strong><span>ou <u>parcourir les fichiers</u></span><small>CSV ou Excel (.xlsx) · 20 Mo max.</small><input id="file-input" type="file" accept=".csv,.xlsx" aria-label="Choisir un fichier CSV ou Excel"></label>
+      <button class="example-button" id="example">Essayer avec les données du projet</button>
+      <div id="file-summary" class="file-summary" hidden><div class="file-icon">CSV</div><div><strong id="file-name"></strong><small id="file-meta"></small></div><button id="clear-file" class="icon-button" aria-label="Retirer le fichier">×</button></div>
+      <div id="config" hidden>
+        <div class="divider"></div><div class="section-heading"><span class="section-number">02</span><h2>Votre modèle</h2></div>
+        <label class="field-label" for="target">Variable à prédire</label><select id="target"></select>
+        <fieldset class="features-field"><legend>Variables d’entrée</legend><div id="features" class="features"></div></fieldset>
+        <p id="data-note" class="note"></p>
+        <details class="settings"><summary>Réglages de l’analyse <span>+</span></summary><div class="settings-body"><label class="field-label" for="quality">Recherche des noyaux</label><select id="quality"><option value="standard">Complète · paramètres du notebook</option><option value="quick">Rapide · première exploration</option></select><p class="note" id="quality-note">Validation croisée : 5 plis · 2 relances par pli, 10 à l’ajustement final.</p><label class="field-label" for="device">Calcul sur</label><select id="device"><option value="cpu">Processeur (CPU)</option><option value="cuda" disabled>Carte graphique (CUDA indisponible)</option></select><p class="note">80 % des configurations pour l’apprentissage, 20 % pour le test.</p></div></details>
+      </div>
+      <button id="run" class="primary-button" disabled><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3 8 5-8 5Z" fill="currentColor"/></svg>Lancer l’analyse</button>
+      <p class="privacy"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V4a3 3 0 0 1 6 0v3"/></svg>Vos données restent sur cette machine.</p>
+    </aside>
+    <section class="panel results-panel" aria-label="Espace de résultats">
+      <div class="results-heading"><div class="section-heading"><span id="panel-number" class="section-number">01</span><h2 id="panel-title">Données</h2></div><span id="result-state" class="status-tag">En attente de données</span></div>
+      <div id="empty" class="empty-state"><div class="empty-chart" aria-hidden="true"><svg viewBox="0 0 220 130" fill="none"><path d="M20 10v100h180M20 77h180M20 44h180" stroke="#dce3ed"/><path d="M25 94C54 91 56 42 93 54S144 80 194 23" stroke="#a9bdda" stroke-width="2" stroke-dasharray="5 5"/><circle cx="43" cy="88" r="4" fill="#648ac2"/><circle cx="73" cy="58" r="4" fill="#648ac2"/><circle cx="108" cy="63" r="4" fill="#648ac2"/><circle cx="150" cy="59" r="4" fill="#648ac2"/><circle cx="183" cy="35" r="4" fill="#648ac2"/></svg></div><h3>Vos résultats prennent place ici.</h3><p>Ajoutez un fichier pour préparer votre analyse.<br>Les graphiques s’afficheront dès le calcul terminé.</p><div class="empty-tags"><span>Prédictions</span><span>Intervalles à 95 %</span><span>Comparaison des noyaux</span></div></div>
+      <div id="preview" hidden>
+        <div class="preview-heading"><h3>Vos données</h3><span id="preview-count"></span></div>
+        <div class="tabs" role="tablist" aria-label="Explorer les entrées">
+          <button type="button" role="tab" id="input-table-tab" aria-controls="input-table-panel" aria-selected="true" data-input-tab="table">Tableau</button>
+          <button type="button" role="tab" id="input-matrix-tab" aria-controls="input-matrix-panel" aria-selected="false" tabindex="-1" data-input-tab="matrix">Matrice des entrées</button>
+        </div>
+        <div id="input-table-panel" role="tabpanel" aria-labelledby="input-table-tab">
+          <p class="note">Faites défiler pour consulter toutes les lignes.</p>
+          <div id="data-scroll" class="table-scroll data-scroll" tabindex="0" role="region" aria-label="Toutes les lignes du fichier"><table id="preview-table"></table></div>
+        </div>
+        <div id="input-matrix-panel" role="tabpanel" aria-labelledby="input-matrix-tab" hidden>
+          <p class="note">Chaque case trace la variable de la ligne en fonction de celle de la colonne. Sur la diagonale : distribution, moyenne et variance (division par N). Les valeurs manquantes sont ignorées par case.</p>
+          <div id="input-matrix" class="matrix-scroll" tabindex="0" role="region" aria-label="Matrice des variables d’entrée"></div>
+        </div>
+      </div>
+      <div id="progress-view" class="progress-view" hidden aria-live="polite"><h3 id="progress-title">Préparation de l’analyse…</h3><p id="progress-detail">Le calcul s’exécute sur votre machine.</p><progress id="progress" max="100" value="0"></progress><div class="progress-meta"><span id="progress-percent">0 %</span><span id="elapsed">0 s</span></div><p class="note">La recherche complète peut prendre plusieurs minutes.</p></div>
+      <div id="results" hidden><div class="metrics" id="metrics"></div><div class="result-context"><span id="best-kernel"></span><a id="download" class="text-link">Exporter les prédictions (.csv)</a></div><section class="prediction-card" aria-labelledby="prediction-title">
+          <h3 id="prediction-title">Prédire un nouveau point</h3>
+          <p class="note">Saisissez vos entrées. Le modèle déjà entraîné calcule la valeur prédite et son intervalle à 95 %.</p>
+          <form id="prediction-form"><div id="prediction-inputs" class="prediction-inputs"></div><button class="primary-button" id="predict-button" type="submit">Calculer la prédiction</button></form>
+          <p id="prediction-error" class="error" role="alert" hidden></p>
+          <div id="prediction-output" class="prediction-output" role="status" aria-live="polite" hidden></div>
+        </section>
+        <div class="tabs" role="tablist" aria-label="Graphiques"><button role="tab" id="tab-parity" aria-controls="chart-panel" aria-selected="true" data-tab="parity">Prédictions</button><button role="tab" id="tab-slices" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="slices">Coupes 1D</button><button role="tab" id="tab-data" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="data">Données</button><button role="tab" id="tab-matrix" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="matrix">Matrice des entrées</button><button role="tab" id="tab-kernels" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="kernels">Noyaux</button></div><div id="chart-panel" role="tabpanel" aria-labelledby="tab-parity"><div class="chart-heading"><div><h3 id="chart-title"></h3><p id="chart-description"></p></div><select id="slice-variable" aria-label="Variable de la coupe" hidden></select></div><div id="chart"></div><div id="result-matrix" class="matrix-scroll" tabindex="0" role="region" aria-label="Matrice des entrées du modèle" hidden></div><div id="kernel-table" class="table-scroll" hidden></div></div><details id="warnings" class="warnings" hidden><summary></summary><ul></ul></details><p id="analysis-info" class="analysis-info"></p></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

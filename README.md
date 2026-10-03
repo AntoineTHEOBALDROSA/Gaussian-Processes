@@ -1,16 +1,16 @@
-# Processus-Gaussiens — interface locale
-
-Interface en français pour importer un fichier CSV ou Excel, sélectionner la cible et les entrées, lancer une régression par processus gaussien et explorer les graphiques. Les calculs, les fichiers et la bibliothèque de graphiques restent sur la machine. Aucune ressource distante n’est nécessaire après l’installation.
+# Gaussian-Processes
 
 ## Démarrer
 
-Depuis le dossier du projet :
+From the folder of the project :
 
 ```bash
-./website/start.sh
+./start.sh
 ```
 
-Ouvrir **http://127.0.0.1:8000**. Garder le terminal ouvert ; `Ctrl+C` arrête le serveur. Pour changer de port : `./website/start.sh --port 8001`.
+Ouvrir **http://127.0.0.1:8000**.
+
+## Dépendances
 
 Le premier lancement installe les dépendances dans `website/.venv` avec `uv` si disponible, sinon avec `python3 -m venv` et pip (Python 3.11 ou supérieur). Cette installation nécessite Internet. Pour réinstaller les dépendances d’un environnement existant :
 
