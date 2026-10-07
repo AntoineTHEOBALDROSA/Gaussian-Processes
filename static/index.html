@@ -9,6 +9,7 @@
   <script src="/static/plotly.min.js" defer></script>
   <script src="/static/exploration.js" defer></script>
   <script src="/static/app.js" defer></script>
+  <script src="/static/transfers.js" defer></script>
 </head>
 <body>
 <main>
@@ -19,8 +20,9 @@
       <li id="step2"><button type="button" data-step="2" aria-controls="config" disabled><span>2</span>Configurer le modèle</button></li>
       <li id="step3"><button type="button" data-step="3" aria-controls="results" disabled><span>3</span>Explorer les résultats</button></li>
     </ol>
-    <button id="new-model" class="secondary-button" type="button" hidden>Nouveau modèle</button>
+    <div class="model-actions"><button id="open-model" class="secondary-button" type="button">Ouvrir un modèle</button><input id="model-input" type="file" accept=".gpmodel" hidden aria-label="Choisir un modèle sauvegardé"><button id="save-model" class="secondary-button" type="button" hidden>Sauvegarder le modèle</button><button id="new-model" class="secondary-button" type="button" hidden>Nouveau modèle</button></div>
   </nav>
+  <p id="transfer-status" class="transfer-status" role="status" aria-live="polite" hidden></p>
   <div id="error" class="error" role="alert" hidden></div>
   <div class="workspace">
     <aside id="input-panel" class="panel input-panel">
@@ -53,6 +55,7 @@
         </div>
         <div id="input-matrix-panel" role="tabpanel" aria-labelledby="input-matrix-tab" hidden>
           <p class="note">Chaque case trace la variable de la ligne en fonction de celle de la colonne. Sur la diagonale : distribution, moyenne et variance (division par N). Les valeurs manquantes sont ignorées par case.</p>
+          <button id="input-matrix-pdf" class="secondary-button" type="button">Exporter la matrice en PDF</button>
           <div id="input-matrix" class="matrix-scroll" tabindex="0" role="region" aria-label="Matrice des variables d’entrée"></div>
         </div>
       </div>
@@ -64,7 +67,7 @@
           <p id="prediction-error" class="error" role="alert" hidden></p>
           <div id="prediction-output" class="prediction-output" role="status" aria-live="polite" hidden></div>
         </section>
-        <div class="tabs" role="tablist" aria-label="Graphiques"><button role="tab" id="tab-parity" aria-controls="chart-panel" aria-selected="true" data-tab="parity">Prédictions</button><button role="tab" id="tab-slices" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="slices">Coupes 1D</button><button role="tab" id="tab-data" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="data">Données</button><button role="tab" id="tab-matrix" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="matrix">Matrice des entrées</button><button role="tab" id="tab-kernels" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="kernels">Noyaux</button></div><div id="chart-panel" role="tabpanel" aria-labelledby="tab-parity"><div class="chart-heading"><div><h3 id="chart-title"></h3><p id="chart-description"></p></div><select id="slice-variable" aria-label="Variable de la coupe" hidden></select></div><div id="chart"></div><div id="result-matrix" class="matrix-scroll" tabindex="0" role="region" aria-label="Matrice des entrées du modèle" hidden></div><div id="kernel-table" class="table-scroll" hidden></div></div><details id="warnings" class="warnings" hidden><summary></summary><ul></ul></details><p id="analysis-info" class="analysis-info"></p></div>
+        <div class="tabs" role="tablist" aria-label="Graphiques"><button role="tab" id="tab-parity" aria-controls="chart-panel" aria-selected="true" data-tab="parity">Prédictions</button><button role="tab" id="tab-slices" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="slices">Coupes 1D</button><button role="tab" id="tab-data" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="data">Données</button><button role="tab" id="tab-matrix" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="matrix">Matrice des entrées</button><button role="tab" id="tab-kernels" aria-controls="chart-panel" aria-selected="false" tabindex="-1" data-tab="kernels">Noyaux</button></div><div id="chart-panel" role="tabpanel" aria-labelledby="tab-parity"><div class="chart-heading"><div><h3 id="chart-title"></h3><p id="chart-description"></p></div><div class="chart-actions"><select id="slice-variable" aria-label="Variable de la coupe" hidden></select><button id="export-pdf" class="secondary-button" type="button">Exporter en PDF</button></div></div><div id="chart"></div><div id="result-matrix" class="matrix-scroll" tabindex="0" role="region" aria-label="Matrice des entrées du modèle" hidden></div><div id="kernel-table" class="table-scroll" hidden></div></div><details id="warnings" class="warnings" hidden><summary></summary><ul></ul></details><p id="analysis-info" class="analysis-info"></p></div>
     </section>
   </div>
 </main>

@@ -53,6 +53,10 @@ body{overflow-anchor:none}
 @media(max-width:760px){.workflow-nav{align-items:flex-start;gap:14px;flex-wrap:wrap;margin:26px 0 22px}.workflow-nav .steps{gap:12px;flex:1}.secondary-button{font-size:13px}.workspace.results-mode .results-panel{padding:22px 16px}}
 
 /* After training, show a pair of explicit view buttons instead of numbered steps. */
+.model-actions,.chart-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.workflow-nav{flex-wrap:wrap}.chart-actions{justify-content:flex-end}
+.transfer-status{color:#365782;font-size:14px;line-height:1.5;margin:0 0 18px}
+@media(max-width:760px){.model-actions{width:100%}.model-actions button{flex:1}.chart-actions{justify-content:flex-start}}
 .workflow-nav.model-navigation .steps{gap:6px;padding:6px;border:1px solid #d5dfed;border-radius:12px;background:#eaf0f8}
 .model-navigation .steps li{color:#405a7b;font-weight:550}
 .model-navigation .steps button{justify-content:center;min-height:44px;padding:11px 20px;background:#fff;border:1px solid #c8d6e8;border-radius:7px;font-size:14px;font-weight:550}

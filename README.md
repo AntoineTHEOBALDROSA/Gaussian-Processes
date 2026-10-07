@@ -2,10 +2,10 @@
 
 ## Démarrer
 
-From the folder of the project :
+Depuis la racine du projet :
 
 ```bash
-./start.sh
+./website/start.sh
 ```
 
 Ouvrir **http://127.0.0.1:8000**.
@@ -40,7 +40,21 @@ Après un entraînement réussi, seuls « Configurer le modèle » et « Explore
 
 CSV UTF-8 ou Windows-1252, séparateur détecté automatiquement, virgule décimale acceptée avec un séparateur approprié (par exemple `;`). Pour Excel, seule la première feuille est lue. Première ligne : noms de colonnes. Limites : 20 Mo, 3 000 lignes, 50 colonnes, 20 entrées sélectionnées. Le calcul GP exact peut être long sur les fichiers les plus volumineux. Les lignes manquantes, non numériques ou infinies sont exclues uniquement sur les variables sélectionnées ; le nombre est indiqué après analyse. Minimum : 10 lignes valides et 8 configurations distinctes.
 
-Les fichiers, modèles entraînés et résultats sont conservés en mémoire uniquement, jusqu’au redémarrage du serveur (10 imports et 10 analyses au maximum). Un rafraîchissement du même onglet retrouve sa dernière analyse tant que le serveur la conserve. Un seul calcul s’exécute à la fois. Les CSV exportés restent là où le navigateur les télécharge.
+Les études ouvertes sont conservées en mémoire jusqu’au redémarrage du serveur (10 imports et 10 analyses au maximum). Pour les conserver durablement, télécharger une sauvegarde `.gpmodel` avec « Sauvegarder le modèle ». Un rafraîchissement du même onglet retrouve sa dernière analyse tant que le serveur la conserve. Un seul calcul s’exécute à la fois. Les CSV exportés restent là où le navigateur les télécharge.
+
+## Sauvegarder et rouvrir un modèle
+
+Après l’entraînement, cliquer sur **Sauvegarder le modèle**. Le fichier `.gpmodel` téléchargé contient les paramètres appris, les normalisations, la factorisation et les coefficients du GP, le jeu de données importé, les réglages, les résultats des graphiques et les prédictions de test.
+
+Cliquer sur **Ouvrir un modèle**, disponible dès l’accueil, puis sélectionner cette sauvegarde (100 Mo maximum). Les résultats et la prédiction de nouveaux points sont immédiatement disponibles, même après un redémarrage du serveur. Aucun entraînement ni optimisation n’est relancé. La réouverture calcule les nouvelles prédictions sur CPU, y compris pour un modèle initialement entraîné sur CUDA ; ce choix est indiqué dans les résultats. Le moteur d’entraînement initial reste indiqué dans le bilan. Un réentraînement éventuel se règle depuis « Configurer le modèle ».
+
+Le format versionné contient du JSON et des tableaux NumPy numériques dans une archive ZIP : aucun pickle et aucun code chargé depuis le fichier. Les fichiers incomplets ou incompatibles sont rejetés. La sauvegarde prend en charge les noyaux actuels et leurs sommes/produits (ConstantKernel, WhiteKernel, RBF, Matérn 1/2, 3/2 ou 5/2, RationalQuadratic). L’ajout d’un autre noyau nécessite d’étendre `model_io.py` pour sa sauvegarde.
+
+## Exporter les graphiques en PDF
+
+Dans les résultats, cliquer sur **Exporter en PDF** pour télécharger la vue choisie : prédictions, coupe 1D de la variable sélectionnée, données, matrice des entrées, ou comparaison des noyaux (représentée en barres avec l’écart-type de la RMSE entre plis). La vue 3D conserve son orientation actuelle. Le zoom du graphique 2D est conservé. La matrice est également exportable avant entraînement depuis son onglet.
+
+Les PDF utilisent des pages A4 paysage avec titre et description. Les graphiques sont intégrés en images haute résolution ; ils ne sont pas vectoriels. Chaque matrice est répartie à raison de quatre cases par page, y compris les cases pas encore affichées à l’écran. La moyenne et la variance des diagonales figurent dans l’export. Le traitement et l’export restent entièrement locaux et ne nécessitent aucun service externe, navigateur supplémentaire ou installation de Chrome. Les exports PNG et CSV restent disponibles.
 
 ## Modèle et provenance
 
@@ -48,6 +62,9 @@ Les fichiers, modèles entraînés et résultats sont conservés en mémoire uni
 - `gpu_model.py` reprend le régresseur PyTorch de `../V1_GPU.ipynb`, chargé seulement en mode CUDA.
 - `analysis.py` réalise le découpage, la validation croisée, la sélection, l’ajustement final et la préparation des résultats.
 - `api.py` gère l’import, les tâches en arrière-plan, la prédiction de nouveaux points et les exports.
+- `model_io.py` sauvegarde et rouvre les études et leur modèle portable.
+- `pdf_export.py` assemble les graphiques haute résolution en PDF avec ReportLab.
+- `static/transfers.js` gère la sauvegarde, la réouverture et les captures PDF côté navigateur.
 - `static/exploration.js` gère le tableau virtualisé, la matrice des entrées et le formulaire de prédiction.
 - `app.py` sert l’interface sur l’adresse de boucle locale uniquement.
 
@@ -95,5 +112,5 @@ cd website
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Ce serveur est destiné à l’usage local sur une seule machine, avec stockage temporaire en mémoire.
+Ce serveur est destiné à l’usage local sur une seule machine. Les études ouvertes restent en mémoire ; les sauvegardes et exports sont conservés dans les fichiers téléchargés.
 # Gaussian-Processes

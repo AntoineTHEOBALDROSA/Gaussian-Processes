@@ -13,6 +13,8 @@ import pandas as pd
 from flask import jsonify, request, Response
 from werkzeug.exceptions import HTTPException
 from analysis import prepare_data, run_analysis
+from model_io import save_model, open_model
+from pdf_export import make_pdf
 
 MAX_ROWS = 3000
 
@@ -69,6 +71,7 @@ def register_api(app):
 
     @app.before_request
     def local_origin():
+        request.max_content_length = (100 if request.path in ('/api/models/open', '/api/export/pdf') else 20) * 1024 * 1024
         if request.method == 'POST':
             origin = request.headers.get('Origin')
             if origin and urlsplit(origin).netloc != request.host:
@@ -87,7 +90,8 @@ def register_api(app):
 
     @app.errorhandler(413)
     def too_large(_):
-        return jsonify(error='Le fichier dépasse la limite de 20 Mo.'), 413
+        limit = 100 if request.path in ('/api/models/open', '/api/export/pdf') else 20
+        return jsonify(error=f'Le fichier dépasse la limite de {limit} Mo.'), 413
 
     @app.errorhandler(ValueError)
     def invalid(error):
@@ -237,3 +241,43 @@ def register_api(app):
             raise ValueError('La prédiction n’est pas finie. Vérifiez l’échelle des entrées.')
         outside = [r['name'] for r in result['input_ranges'] if not r['minimum'] <= values[r['name']] <= r['maximum']]
         return jsonify(target=result['target'], mean=mu, std=sigma, lower=mu-1.96*sigma, upper=mu+1.96*sigma, outside=outside)
+
+    @app.get('/api/jobs/<job_id>/model.gpmodel')
+    def download_model(job_id):
+        with lock:
+            entry = jobs.get(job_id)
+            if entry is None or entry['status'] != 'done':
+                return jsonify(error='Le modèle entraîné n’est pas disponible.'), 404
+        return Response(save_model(entry), mimetype='application/octet-stream',
+                        headers={'Content-Disposition': 'attachment; filename=modele.gpmodel'})
+
+    @app.post('/api/models/open')
+    def restore_model():
+        uploaded = request.files.get('file')
+        if uploaded is None or not uploaded.filename or not uploaded.filename.lower().endswith('.gpmodel'):
+            raise ValueError('Choisissez une sauvegarde de modèle au format .gpmodel.')
+        manifest, csv, model = open_model(uploaded.stream)
+        data = manifest['dataset']
+        frame = pd.DataFrame(data['records'], columns=[c['name'] for c in data['columns']])
+        dataset_id, job_id = uuid.uuid4().hex, uuid.uuid4().hex
+        metadata = describe(frame, data['filename'], dataset_id)
+        options = {**manifest['options'], 'dataset_id': dataset_id, 'device': 'cpu'}
+        metadata.update(target=options['target'], features=options['features'])
+        entry = dict(id=job_id, status='done', progress=100, title='Modèle rouvert', detail='',
+                     started=time.time(), dataset=metadata, options=options, result=manifest['result'],
+                     csv=csv, model=model, restored=True)
+        with lock:
+            if any(j['status'] == 'running' for j in jobs.values()):
+                return jsonify(error='Attendez la fin de l’analyse avant d’ouvrir un modèle.'), 409
+            datasets[dataset_id] = (frame, metadata)
+            jobs[job_id] = entry
+            while len(datasets) > 10:
+                datasets.popitem(last=False)
+            while len(jobs) > 10:
+                jobs.popitem(last=False)
+        return jsonify({k: v for k, v in entry.items() if k not in ('csv', 'model')})
+
+    @app.post('/api/export/pdf')
+    def export_pdf():
+        return Response(make_pdf(request.get_json(silent=True)), mimetype='application/pdf',
+                        headers={'Content-Disposition': 'attachment; filename=graphiques.pdf'})

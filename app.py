@@ -5,7 +5,7 @@ from plotly.offline import get_plotlyjs
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(ROOT / 'static'))
-app.config.update(MAX_CONTENT_LENGTH=20 * 1024 * 1024, TRUSTED_HOSTS=['127.0.0.1', 'localhost', '[::1]'])
+app.config.update(MAX_CONTENT_LENGTH=100 * 1024 * 1024, TRUSTED_HOSTS=['127.0.0.1', 'localhost', '[::1]'])
 
 @app.get('/')
 def index():

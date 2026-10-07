@@ -1,6 +1,6 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
-const state = {dataset:null, result:null, job:null, busy:false, trained:false, step:1, tab:'parity', poll:null};
+const state = {dataset:null, result:null, job:null, busy:false, trained:false, step:1, tab:'parity', poll:null, restored:false, chartReady:Promise.resolve()};
 const number = (value, digits=4) => Number(value).toLocaleString('fr-FR', {maximumSignificantDigits:digits});
 const show = (id, visible) => { $(id).hidden = !visible; };
 function error(message) { $('error').textContent = message || ''; show('error', Boolean(message)); }
@@ -15,7 +15,7 @@ async function api(path, options={}) {
 function remember(id) { try { id ? sessionStorage.setItem('gp-job',id) : sessionStorage.removeItem('gp-job'); } catch {} }
 function busy(value) {
   state.busy = value;
-  document.querySelectorAll('#config input, #config select, #file-input, #example, #clear-file').forEach(el => el.disabled = value);
+  document.querySelectorAll('#config input, #config select, #file-input, #example, #clear-file, #model-input, #open-model, #input-matrix-pdf, [data-tab], [data-input-tab], #slice-variable, #predict-button, #prediction-inputs input').forEach(el => el.disabled = value);
   // CUDA remains unavailable unless the local capability check succeeded.
   $('device').querySelector('[value=cuda]').disabled = !$('device').dataset.cuda;
   $('dropzone').classList.toggle('disabled',value);
@@ -32,6 +32,9 @@ function updateSteps() {
   show('new-model', state.trained);
   show('clear-file', !state.trained);
   $('new-model').disabled = state.busy;
+  show('save-model', Boolean(state.result));
+  $('save-model').disabled = state.busy || !state.result;
+  $('export-pdf').disabled = state.busy || !state.result;
   document.querySelectorAll('[data-step]').forEach(button => {
     const step = Number(button.dataset.step);
     button.disabled = state.busy || (step === 1 && state.trained) || (step === 2 && !state.dataset) || (step === 3 && !state.result);
@@ -70,7 +73,7 @@ function navigateStep(step) {
   stage(step);
   if (step === 3) {
     display('results');
-    $('result-state').textContent = 'Analyse terminée';
+    $('result-state').textContent = state.restored ? 'Modèle rouvert' : 'Analyse terminée';
     renderChart();
   } else {
     display(state.dataset ? 'preview' : 'empty');
@@ -120,7 +123,7 @@ function fillTable(container, columns, rows) {
   table.append(body); if(container!==table) container.replaceChildren(table);
 }
 function setDataset(data) {
-  state.dataset=data; state.result=null; state.trained=false; error(null); show('dropzone',false); show('example',false); show('file-summary',true); show('config',true);
+  state.dataset=data; state.restored=false; state.result=null; state.trained=false; error(null); show('dropzone',false); show('example',false); show('file-summary',true); show('config',true);
   $('file-name').textContent=data.filename; $('file-meta').textContent=`${data.rows} lignes · ${data.columns.length} colonnes`;
   document.querySelector('.file-icon').textContent=data.filename.toLowerCase().endsWith('.xlsx')?'XLSX':'CSV';
   $('target').replaceChildren();
@@ -158,8 +161,9 @@ $('example').addEventListener('click',async()=>{
 function resetModel() {
   if (state.busy) return;
   clearTimeout(state.poll);
-  state.dataset=null;state.result=null;state.job=null;state.trained=false;state.poll=null;
+  state.dataset=null;state.result=null;state.job=null;state.trained=false;state.poll=null;state.restored=false;
   remember(null);saveConfiguration();error(null);
+  $('transfer-status').hidden=true;
   $('file-input').value='';$('quality').value='standard';$('device').value='cpu';updateQualityNote();
   ['file-summary','config'].forEach(id=>show(id,false));
   selectInputTab('table');
@@ -190,7 +194,7 @@ async function startAnalysis() {
   error(null);busy(true);
   try {
     const job=await api('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options)});
-    state.result=null;state.job=job.id;remember(job.id);display('progress-view');stage(3);$('result-state').textContent='Calcul en cours';
+    state.result=null;state.restored=false;state.job=job.id;remember(job.id);display('progress-view');stage(3);$('result-state').textContent='Calcul en cours';
     $('progress').value=0;$('progress-percent').textContent='0 %';$('progress-title').textContent='Préparation de l’analyse…';$('elapsed').textContent='0 s';
     if(window.matchMedia('(max-width:760px)').matches) $('progress-view').scrollIntoView({block:'start'});
     await pollJob(job.id); return {id:job.id,status:'started'};
@@ -219,7 +223,7 @@ async function pollJob(id) {
 }
 function renderResults() {
   state.trained=true;saveConfiguration();
-  const r=state.result;display('results');stage(3);$('result-state').textContent='Analyse terminée';
+  const r=state.result;display('results');stage(3);$('result-state').textContent=state.restored ? 'Modèle rouvert' : 'Analyse terminée';
   $('metrics').replaceChildren();
   [['Erreur RMSE',number(r.metrics.rmse),'Sur les données de test'],['Erreur MAE',number(r.metrics.mae),'Sur les données de test'],['Couverture à 95 %',number(r.metrics.coverage,3)+' %','Points dans l’intervalle']].forEach(([label,value,sub])=>{
     const div=document.createElement('div');div.className='metric';
@@ -228,7 +232,7 @@ function renderResults() {
   $('best-kernel').textContent='Noyau retenu : '+r.kernel;
   $('download').href='/api/jobs/'+state.job+'/predictions.csv';
   $('slice-variable').replaceChildren();r.features.forEach((name,i)=>$('slice-variable').add(new Option(name,String(i))));
-  $('analysis-info').textContent=`${r.train_count} points d’apprentissage · ${r.test_count} points de test · ${r.dropped} ligne(s) exclue(s) · ${r.folds} plis · ${r.device.toUpperCase()} · ${number(r.seconds,3)} s. Les configurations identiques restent dans le même groupe. Graine : ${r.seed}.`;
+  $('analysis-info').textContent=`${r.train_count} points d’apprentissage · ${r.test_count} points de test · ${r.dropped} ligne(s) exclue(s) · ${r.folds} plis · ${r.device.toUpperCase()} · ${number(r.seconds,3)} s. Les configurations identiques restent dans le même groupe. Graine : ${r.seed}.${state.restored ? ' Modèle rouvert sans entraînement ; les nouvelles prédictions sont calculées sur CPU.' : ''}`;
   show('warnings',r.warnings.length>0);$('warnings').querySelector('summary').textContent=`${r.warnings.length} avertissement(s) d’optimisation — consulter les détails`;
   const list=$('warnings').querySelector('ul');list.replaceChildren();r.warnings.forEach(message=>{const li=document.createElement('li');li.textContent=message;list.append(li);});
   setupPrediction();
@@ -279,7 +283,7 @@ function renderChart() {
     $('chart-title').textContent=`Comparaison des ${r.ranking.length} noyaux`;$('chart-description').textContent='Classement par erreur moyenne de validation croisée. Une RMSE plus faible est préférable. Le test final reste indépendant.';
     fillTable($('kernel-table'),['Noyau','RMSE CV','Écart-type','Durée (s)','Alertes'],r.ranking.map(k=>[k.name,k.rmse,k.std,k.seconds,k.warnings]));return;
   }
-  Plotly.react('chart',traces,plotLayout,{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:['lasso2d','select2d','sendDataToCloud','sendChartToCloud'],toImageButtonOptions:{format:'png',filename:'atelier-gp-'+tab,scale:2}}).catch(e=>error('Le graphique n’a pas pu être affiché : '+e.message));
+  state.chartReady = Plotly.react('chart',traces,plotLayout,{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:['lasso2d','select2d','sendDataToCloud','sendChartToCloud'],toImageButtonOptions:{format:'png',filename:'atelier-gp-'+tab,scale:2}}).catch(e=>error('Le graphique n’a pas pu être affiché : '+e.message));
 }
 async function initialize() {
   try{const capabilities=await api('/api/capabilities');if(capabilities.cuda){$('device').dataset.cuda='true';const option=$('device').querySelector('[value=cuda]');option.disabled=false;option.textContent='GPU · '+capabilities.gpu;}}catch(e){error(e.message);}
@@ -288,7 +292,7 @@ async function initialize() {
   if(id){
     try {
       const job=await api('/api/jobs/'+id+'?details=1');
-      setDataset(job.dataset);applyConfiguration(job.options);state.job=id;
+      setDataset(job.dataset);applyConfiguration(job.options);state.job=id;state.restored=Boolean(job.restored);
       state.trained=Boolean(saved?.trained && saved.dataset_id===job.dataset.id);
       if(job.status==='done'){state.result=job.result;renderResults();}
       else if(job.status==='running'){busy(true);display('progress-view');stage(3);$('result-state').textContent='Calcul en cours';pollJob(id);}
