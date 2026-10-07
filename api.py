@@ -15,6 +15,9 @@ from werkzeug.exceptions import HTTPException
 from analysis import prepare_data, run_analysis
 from model_io import save_model, open_model
 from pdf_export import make_pdf
+from models import search_options
+from excel_prediction import describe_workbook, inspect_sheet, predict_workbook
+from acquisition import suggestions
 
 MAX_ROWS = 3000
 
@@ -64,7 +67,7 @@ def describe(frame, filename, dataset_id):
 
 
 def register_api(app):
-    datasets, jobs = OrderedDict(), OrderedDict()
+    datasets, jobs, workbooks = OrderedDict(), OrderedDict(), OrderedDict()
     lock = threading.RLock()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gp-analysis')
     capability_cache = None
@@ -170,6 +173,7 @@ def register_api(app):
             raise ValueError('Paramètres d’analyse invalides.')
         if options.get('quality') not in ('quick', 'standard') or options.get('device') not in ('cpu', 'cuda'):
             raise ValueError('Choisissez un mode de recherche et un moteur de calcul valides.')
+        search_options(options)
         dataset_id = options.get('dataset_id')
         if not isinstance(dataset_id, str):
             raise ValueError('Importez un fichier avant de lancer le calcul.')
@@ -281,3 +285,55 @@ def register_api(app):
     def export_pdf():
         return Response(make_pdf(request.get_json(silent=True)), mimetype='application/pdf',
                         headers={'Content-Disposition': 'attachment; filename=graphiques.pdf'})
+
+    def trained_job(job_id):
+        with lock:
+            entry = jobs.get(job_id)
+            if entry is None or entry['status'] != 'done':
+                raise ValueError('Entraînez ou ouvrez un modèle avant de lancer cette action.')
+            return entry
+
+    def workbook_entry(workbook_id):
+        with lock:
+            entry = workbooks.get(workbook_id) if isinstance(workbook_id,str) else None
+            if entry is None:
+                raise ValueError('Ce classeur n’est plus disponible. Importez-le à nouveau.')
+            return entry
+
+    @app.post('/api/workbooks')
+    def upload_workbook():
+        uploaded = request.files.get('file')
+        if uploaded is None or not uploaded.filename or not uploaded.filename.lower().endswith('.xlsx'):
+            raise ValueError('Choisissez un classeur .xlsx pour les prédictions.')
+        raw, workbook_id = uploaded.read(), uuid.uuid4().hex
+        filename = uploaded.filename.replace('\\','/').split('/')[-1]
+        metadata = describe_workbook(raw, filename, workbook_id)
+        with lock:
+            workbooks[workbook_id] = raw
+            while len(workbooks)>10:
+                workbooks.popitem(last=False)
+        return jsonify(metadata)
+
+    @app.post('/api/workbooks/<workbook_id>/inspect')
+    def inspect_workbook(workbook_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload,dict):
+            raise ValueError('Paramètres de feuille invalides.')
+        return jsonify(inspect_sheet(workbook_entry(workbook_id), payload.get('sheet'), payload.get('header_row',1)))
+
+    @app.post('/api/jobs/<job_id>/predict-excel')
+    def excel_predictions(job_id):
+        entry = trained_job(job_id)
+        options = request.get_json(silent=True)
+        if not isinstance(options,dict):
+            raise ValueError('Paramètres Excel invalides.')
+        raw = workbook_entry(options.get('workbook_id'))
+        output, summary = predict_workbook(raw, entry['model'], entry['result']['features'], options)
+        return Response(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        headers={'Content-Disposition':'attachment; filename=predictions.xlsx',
+                                 'X-GP-Summary':json.dumps(summary)})
+
+    @app.post('/api/jobs/<job_id>/suggestions')
+    def propose_points(job_id):
+        entry = trained_job(job_id)
+        return jsonify(suggestions(entry['model'],entry['result'],request.get_json(silent=True)))

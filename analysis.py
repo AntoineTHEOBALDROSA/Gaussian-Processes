@@ -7,7 +7,7 @@ from sklearn.base import clone
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from threadpoolctl import threadpool_limits
-from models import GPRWrapper, noyaux_candidats
+from models import GPRWrapper, noyaux_candidats, search_options, bound_diagnostics
 
 
 def prepare_data(frame, target, features):
@@ -41,7 +41,8 @@ def run_analysis(frame, options, progress):
     X_test, y_test = X[test], y[test]
     quick = options['quality'] == 'quick'
     folds, cv_restarts, final_restarts = (3, 0, 1) if quick else (5, 2, 10)
-    kernels = noyaux_candidats(len(features))
+    search, bounds = search_options(options)
+    kernels = noyaux_candidats(len(features), extended=search=='extended', length_bounds=bounds)
     unique, groups = np.unique(X_train, axis=0, return_inverse=True)
     partitions = list(KFold(n_splits=folds, shuffle=True, random_state=2025).split(unique))
     ranking, fit_warnings = [], []
@@ -91,6 +92,7 @@ def run_analysis(frame, options, progress):
     result = dict(
         target=target, features=features, device=options['device'], quality=options['quality'],
         kernel=winner, optimized_kernel=str(model.model.kernel_), ranking=ranking,
+        kernel_search=search, length_bounds=list(bounds), bound_diagnostics=bound_diagnostics(model.model.kernel_, features),
         metrics=dict(mae=float(mean_absolute_error(y_test, pred)), rmse=float(np.sqrt(mean_squared_error(y_test, pred))), coverage=float(np.mean(np.abs(y_test-pred) <= 1.96*std))*100),
         parity=dict(actual=y_test.tolist(), predicted=pred.tolist(), std=std.tolist()),
         input_ranges=[dict(name=name, minimum=float(X_train[:, j].min()), maximum=float(X_train[:, j].max()), median=float(np.median(X_train[:, j]))) for j, name in enumerate(features)],

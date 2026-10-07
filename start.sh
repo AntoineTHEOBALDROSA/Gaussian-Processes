@@ -10,7 +10,7 @@ if [[ ! -x .venv/bin/python ]]; then
     .venv/bin/python -m pip install -r requirements.txt
   fi
 fi
-if ! .venv/bin/python -c 'import reportlab' >/dev/null 2>&1; then
+if ! .venv/bin/python -c 'import reportlab, lxml' >/dev/null 2>&1; then
   if command -v uv >/dev/null 2>&1; then
     uv pip install --python .venv/bin/python -r requirements.txt
   else

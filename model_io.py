@@ -10,7 +10,7 @@ import zlib
 import numpy as np
 from scipy.linalg import solve_triangular
 from sklearn.gaussian_process.kernels import (
-    ConstantKernel, RBF, Matern, RationalQuadratic, WhiteKernel, Sum, Product,
+    ConstantKernel, RBF, Matern, RationalQuadratic, WhiteKernel, Sum, Product, DotProduct, Exponentiation,
 )
 
 ARRAY_NAMES = ('x_train', 'coefficients', 'cholesky', 'input_mean', 'input_scale')
@@ -22,6 +22,10 @@ def encode_kernel(kernel):
     kind = type(kernel).__name__
     if type(kernel) in (Sum, Product):
         return dict(type=kind, left=encode_kernel(kernel.k1), right=encode_kernel(kernel.k2))
+    if type(kernel) is Exponentiation:
+        return dict(type=kind, kernel=encode_kernel(kernel.kernel), exponent=float(kernel.exponent))
+    if type(kernel) is DotProduct:
+        return dict(type=kind, value=float(kernel.sigma_0))
     if type(kernel) is ConstantKernel:
         return dict(type=kind, value=float(kernel.constant_value))
     if type(kernel) is WhiteKernel:
@@ -42,6 +46,16 @@ def decode_kernel(description, dimensions, depth=0):
     if not isinstance(description, dict) or depth > 8:
         raise ValueError('Description du noyau invalide.')
     kind = description.get('type')
+    if kind == 'Exponentiation':
+        exponent = description['exponent']
+        if exponent not in (1, 2, 3):
+            raise ValueError('Puissance du noyau non prise en charge.')
+        return decode_kernel(description['kernel'], dimensions, depth+1) ** exponent
+    if kind == 'DotProduct':
+        value = float(description['value'])
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError('Paramètre linéaire invalide.')
+        return DotProduct(value, 'fixed')
     if kind in ('Sum', 'Product'):
         left = decode_kernel(description['left'], dimensions, depth + 1)
         right = decode_kernel(description['right'], dimensions, depth + 1)

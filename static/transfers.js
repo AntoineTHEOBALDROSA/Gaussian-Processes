@@ -20,6 +20,7 @@ async function downloadResponse(path, options, filename) {
   const link = document.createElement('a'); link.href = url; link.download = filename;
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return response.headers;
 }
 document.getElementById('open-model').addEventListener('click', () => {
   if (!state.busy) $('model-input').click();
@@ -114,6 +115,18 @@ async function exportPdf(matrixId=null) {
     let pages;
     if (matrixId || state.tab === 'matrix') {
       pages = await matrixPages(matrixId || 'result-matrix');
+    } else if (state.tab === 'coverage') {
+      await state.coverageReady;
+      const histogram=$('target-distribution');
+      pages=[{title:'Distribution des sorties observées',description:$('rare-ranges').textContent,
+        image:await plotImage(histogram.data,histogram.layout)}];
+      if(research.proposals){
+        await state.suggestionsReady;
+        const plot=$('coverage-chart'),focus=research.proposals.target_range;
+        pages.push({title:'Configurations complémentaires proposées',
+          description:'Distance aux observations, incertitude de la fonction et diversité du lot. '+(focus?'Sortie estimée ciblée : '+focus.join(' à ')+'. ':'')+'Vérifier la faisabilité physique ; les sorties proposées sont des estimations.',
+          image:await plotImage(plot.data,plot.layout)});
+      }
     } else {
       await state.chartReady;
       let traces, plotLayout;
@@ -141,3 +154,4 @@ async function exportPdf(matrixId=null) {
 }
 document.getElementById('export-pdf').addEventListener('click', () => exportPdf());
 document.getElementById('input-matrix-pdf').addEventListener('click', () => exportPdf('input-matrix'));
+document.getElementById('coverage-pdf').addEventListener('click', () => exportPdf());

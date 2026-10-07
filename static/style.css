@@ -26,6 +26,10 @@ body{overflow-anchor:none}
 .matrix-plot{height:200px;width:100%}
 .prediction-card{border:1px solid var(--border);border-radius:9px;background:#f8faff;padding:20px;margin:8px 0 24px}
 .prediction-card h3{font-size:16px}.prediction-card .note{margin:8px 0 16px}
+.help-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;border:1px solid #d5dfed;border-radius:7px;background:#fff;padding:9px 12px;font-size:12px;font-weight:500;color:#58749c;text-decoration:none;white-space:nowrap;line-height:1.5}
+.help-link:hover{color:#285fcd;background:#f2f6fe;border-color:#a9bfdf}
+.page-heading{gap:25px;align-items:flex-start}.page-heading>.help-link{margin-top:24px}
+@media(max-width:900px){.page-heading{flex-wrap:wrap;gap:14px}.page-heading>.help-link{margin-top:0}}
 .prediction-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
 .prediction-inputs label{display:block;font-size:14px;font-weight:550;margin:0 0 7px;overflow-wrap:anywhere}
 .prediction-inputs input{width:100%;min-width:0;background:white;border:1px solid #d7dfeb;border-radius:6px;padding:10px 12px;font-size:16px;color:#344762}
@@ -56,6 +60,21 @@ body{overflow-anchor:none}
 .model-actions,.chart-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .workflow-nav{flex-wrap:wrap}.chart-actions{justify-content:flex-end}
 .transfer-status{color:#365782;font-size:14px;line-height:1.5;margin:0 0 18px}
+.excel-card{padding:20px;border:1px solid var(--border);border-radius:9px;margin:0 0 24px;background:#fff}
+.excel-card summary,.domain-settings summary{cursor:pointer;font-size:16px;font-weight:600;color:#253f62}
+.control-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0}
+.control-grid label,.domain-grid label{display:block;color:#405a7b;font-size:14px;line-height:1.5}
+.control-grid input:not([type=checkbox]),.domain-grid input:not([type=checkbox]){width:100%;padding:9px 11px;margin-top:6px;border:1px solid #d7dfeb;border-radius:6px;background:white;font-size:15px;color:#344762}
+.control-grid select{margin-top:6px}
+.check-label{display:flex!important;align-items:center;gap:9px;font-size:14px;margin:16px 0;line-height:1.5}
+.check-label input{width:16px;height:16px;flex-shrink:0}
+.excel-card .primary-button,.coverage-view .primary-button{width:auto;padding:11px 18px}
+.coverage-view{margin-top:24px}.research-chart{height:360px;width:100%;margin:18px 0}#target-distribution{height:280px}
+.domain-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin-top:16px}
+.domain-grid fieldset{border:1px solid var(--border);border-radius:8px;padding:14px;min-width:0}.domain-grid legend{font-weight:600;padding:0 6px}
+#kernel-diagnostics{margin:24px 0}#bounds-table{max-height:340px;overflow:auto}#bounds-table td{white-space:normal}
+.coverage-view .table-scroll{max-height:440px;overflow:auto}.coverage-view table{white-space:nowrap}
+@media(max-width:760px){.control-grid,.domain-grid{grid-template-columns:1fr}.excel-card{padding:16px}.excel-card .primary-button,.coverage-view .primary-button{width:100%}}
 @media(max-width:760px){.model-actions{width:100%}.model-actions button{flex:1}.chart-actions{justify-content:flex-start}}
 .workflow-nav.model-navigation .steps{gap:6px;padding:6px;border:1px solid #d5dfed;border-radius:12px;background:#eaf0f8}
 .model-navigation .steps li{color:#405a7b;font-weight:550}

@@ -15,7 +15,7 @@ async function api(path, options={}) {
 function remember(id) { try { id ? sessionStorage.setItem('gp-job',id) : sessionStorage.removeItem('gp-job'); } catch {} }
 function busy(value) {
   state.busy = value;
-  document.querySelectorAll('#config input, #config select, #file-input, #example, #clear-file, #model-input, #open-model, #input-matrix-pdf, [data-tab], [data-input-tab], #slice-variable, #predict-button, #prediction-inputs input').forEach(el => el.disabled = value);
+  document.querySelectorAll('#config input, #config select, #file-input, #example, #clear-file, #model-input, #open-model, #input-matrix-pdf, [data-tab], [data-input-tab], #slice-variable, #predict-button, #prediction-inputs input, #excel-card input, #excel-card select, #excel-card button, #coverage-view input, #coverage-view select, #coverage-view button').forEach(el => el.disabled = value);
   // CUDA remains unavailable unless the local capability check succeeded.
   $('device').querySelector('[value=cuda]').disabled = !$('device').dataset.cuda;
   $('dropzone').classList.toggle('disabled',value);
@@ -164,7 +164,7 @@ function resetModel() {
   state.dataset=null;state.result=null;state.job=null;state.trained=false;state.poll=null;state.restored=false;
   remember(null);saveConfiguration();error(null);
   $('transfer-status').hidden=true;
-  $('file-input').value='';$('quality').value='standard';$('device').value='cpu';updateQualityNote();
+  $('file-input').value='';$('quality').value='standard';$('device').value='cpu';$('kernel-search').value='base';$('length-min').value='0.01';$('length-max').value='1000';updateQualityNote();
   ['file-summary','config'].forEach(id=>show(id,false));
   selectInputTab('table');
   display('empty');$('result-state').textContent='En attente de données';stage(1);updateRun();
@@ -177,19 +177,20 @@ function updateQualityNote() {
 function saveConfiguration() {
   try {
     if (!state.dataset) { sessionStorage.removeItem('gp-configuration'); return; }
-    sessionStorage.setItem('gp-configuration', JSON.stringify({dataset_id:state.dataset.id, target:$('target').value, features:selectedFeatures(), quality:$('quality').value, device:$('device').value, trained:state.trained}));
+    sessionStorage.setItem('gp-configuration', JSON.stringify({dataset_id:state.dataset.id, target:$('target').value, features:selectedFeatures(), quality:$('quality').value, device:$('device').value, kernel_search:$('kernel-search').value, length_bounds:[Number($('length-min').value),Number($('length-max').value)], trained:state.trained}));
   } catch {}
 }
 function applyConfiguration(options) {
   $('target').value=options.target;renderFeatures(options.features);
-  $('quality').value=options.quality;$('device').value=options.device;updateQualityNote();
+  $('quality').value=options.quality;$('device').value=options.device;$('kernel-search').value=options.kernel_search || 'base';const bounds=options.length_bounds || [0.01,1000];$('length-min').value=bounds[0];$('length-max').value=bounds[1];updateQualityNote();
 }
 $('target').addEventListener('change',()=>{const old=selectedFeatures(); renderFeatures([...old,...state.dataset.features]);configurationChanged();});
 $('quality').addEventListener('change',()=>{updateQualityNote();configurationChanged();});
 $('device').addEventListener('change',configurationChanged);
+['kernel-search','length-min','length-max'].forEach(id=>$(id).addEventListener('change',configurationChanged));
 async function startAnalysis() {
   if(state.busy || !state.dataset) throw new Error('Importez un fichier et attendez la fin du calcul en cours.');
-  const options={dataset_id:state.dataset.id,target:$('target').value,features:selectedFeatures(),quality:$('quality').value,device:$('device').value};
+  const options={dataset_id:state.dataset.id,target:$('target').value,features:selectedFeatures(),quality:$('quality').value,device:$('device').value,kernel_search:$('kernel-search').value,length_bounds:[Number($('length-min').value),Number($('length-max').value)]};
   if(!options.features.length) throw new Error('Sélectionnez au moins une entrée.');
   error(null);busy(true);
   try {
@@ -236,6 +237,7 @@ function renderResults() {
   show('warnings',r.warnings.length>0);$('warnings').querySelector('summary').textContent=`${r.warnings.length} avertissement(s) d’optimisation — consulter les détails`;
   const list=$('warnings').querySelector('ul');list.replaceChildren();r.warnings.forEach(message=>{const li=document.createElement('li');li.textContent=message;list.append(li);});
   setupPrediction();
+  setupResearch();
   chooseTab('parity');
 }
 const blue='#316bd1', gray='#9eafc6', teal='#339e8f';
@@ -255,7 +257,9 @@ $('slice-variable').addEventListener('change',renderChart);
 function renderChart() {
   const r=state.result;if(!r)return;
   const tab=state.tab;let traces=[],plotLayout;
-  show('slice-variable',tab==='slices');show('kernel-table',tab==='kernels');show('chart',tab!=='kernels' && tab!=='matrix');show('result-matrix',tab==='matrix');
+  show('coverage-view',tab==='coverage');show('chart-heading',tab!=='coverage');show('kernel-diagnostics',tab==='kernels' && Boolean(r.bound_diagnostics));show('export-pdf',tab!=='coverage');
+  show('slice-variable',tab==='slices');show('kernel-table',tab==='kernels');show('chart',tab!=='kernels' && tab!=='matrix' && tab!=='coverage');show('result-matrix',tab==='matrix');
+  if(tab==='coverage'){renderCoverage();return;}
   if(tab==='matrix'){
     $('chart-title').textContent='Matrice des entrées du modèle';
     $('chart-description').textContent='Toutes les lignes importées · axe horizontal : variable de la colonne ; axe vertical : variable de la ligne. Diagonale : moyenne et variance (division par N).';

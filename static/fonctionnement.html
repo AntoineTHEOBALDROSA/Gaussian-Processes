@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Comprendre l’algorithme · Processus-Gaussiens</title>
+  <meta name="description" content="Le calcul local : préparation des données, validation croisée, choix du noyau et prédictions par processus gaussien.">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/fonctionnement.css">
+  <script src="/static/fonctionnement.js" defer></script>
+</head>
+<body>
+<main class="explanation-page">
+  <a class="help-link tool-link" href="/">← Ouvrir l’outil d’analyse</a>
+  <div class="explanation-intro">
+    <p class="eyebrow">COMPRENDRE LE CALCUL</p>
+    <h1>Du fichier au modèle.</h1>
+    <p>Comment vos données deviennent une prédiction, et comment le site choisit le noyau qui les décrit le mieux parmi les candidats testés.</p>
+  </div>
+  <nav class="explanation-nav" aria-label="Sur cette page">
+    <a href="#schema">Le schéma</a><a href="#etapes">Le calcul pas à pas</a><a href="#apres">Après l’entraînement</a><a href="#code">Les fichiers Python</a>
+  </nav>
+  <section class="explanation-panel" id="schema" aria-labelledby="schema-title">
+    <div class="explanation-section-heading"><div><p class="eyebrow">VUE D’ENSEMBLE</p><h2 id="schema-title">Apprendre, comparer, puis vérifier.</h2></div><span class="explanation-caption">Schéma du moteur actuel</span></div>
+    <p class="explanation-lead">La boucle orange compare les noyaux. La branche bleue garde des données de test à l’écart jusqu’à l’évaluation finale.</p>
+    <div class="diagram-controls">
+      <label>Mode illustré<select id="explanation-quality"><option value="standard">Complète · 5 plis</option><option value="quick">Rapide · 3 plis</option></select></label>
+      <label>Banque de noyaux<select id="explanation-bank"><option value="base">Simple · 4 noyaux</option><option value="extended">Élargie · 8 noyaux (CPU)</option></select></label>
+      <p>Ces choix changent l’explication uniquement.<br>Ils ne modifient pas votre analyse.</p>
+    </div>
+    <figure class="algorithm-figure">
+      <ol class="compact-flow" aria-label="Étapes de l’algorithme sur petit écran">
+        <li><strong>Importer et préparer X et Y</strong><span>Conserver les observations numériques complètes.</span></li>
+        <li><strong>Réserver le test par configurations</strong><div class="compact-split"><span>80 %<br>Apprentissage</span><span>20 %<br>Test gardé à part</span></div></li>
+        <li class="compact-comparison"><strong>Comparer les noyaux sur l’apprentissage</strong><span data-explanation="comparison">4 noyaux candidats · les mêmes 5 plis pour chaque noyau</span><div class="compact-loop"><span>Entraîner sur les autres plis</span><span aria-hidden="true">↓</span><span>Prédire le pli réservé · calculer sa RMSE</span><span><span aria-hidden="true">↻ </span><span data-explanation="compact-loop">Répéter pour chacun des 5 plis</span></span><span>Un modèle indépendant à chaque pli.</span></div><span>Choisir le meilleur noyau.</span></li>
+        <li class="compact-model"><strong>Réentraîner</strong><span>Sur les 80 % d’apprentissage.</span></li>
+        <li><strong>Évaluer sur les 20 % de test</strong></li>
+        <li class="compact-model"><strong>Réutiliser le modèle</strong></li>
+      </ol>
+      <div class="algorithm-scroll" tabindex="0" role="region" aria-label="Schéma de l’algorithme, défilement horizontal sur petit écran">
+        <svg class="algorithm-diagram" viewBox="0 0 1120 704" role="img" aria-labelledby="flow-title flow-description">
+          <title id="flow-title">Du fichier au processus gaussien entraîné</title>
+          <desc id="flow-description">Importer et nettoyer les données, puis séparer les configurations en 80 % d’apprentissage et 20 % de test. Sur l’apprentissage uniquement, comparer chaque noyau par validation croisée. Retenir la plus faible RMSE moyenne et ajuster ce noyau sur les 80 %. Évaluer le modèle sur le test réservé. Les nombres de plis et de candidats suivent les réglages illustrés ci-dessus.</desc>
+          <defs>
+            <marker id="arrow-blue" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#6885ad"/></marker>
+            <marker id="arrow-orange" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#c98a3c"/></marker>
+            <marker id="arrow-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#418579"/></marker>
+          </defs>
+          <rect class="cv-envelope" x="36" y="181" width="768" height="276" rx="20"/>
+          <g class="flow-connections">
+            <path d="M254 80H302" marker-end="url(#arrow-blue)"/>
+            <path d="M522 80H586" marker-end="url(#arrow-blue)"/>
+            <path d="M412 36V12H975V36" marker-end="url(#arrow-blue)"/>
+            <path d="M695 124V151H50V296H70" marker-end="url(#arrow-blue)"/>
+            <path class="test-path" d="M975 124V589" marker-end="url(#arrow-blue)"/>
+          </g>
+          <g class="flow-node flow-blue"><rect x="36" y="36" width="218" height="88" rx="14"/><text x="145" y="70">Importer les données</text><text class="flow-small" x="145" y="97">Choisir X et Y · filtrer les lignes</text></g>
+          <g class="flow-node flow-blue"><rect x="302" y="36" width="220" height="88" rx="14"/><text x="412" y="86">Séparer les groupes</text></g>
+          <g class="flow-node flow-blue"><rect x="586" y="36" width="218" height="88" rx="14"/><text x="695" y="70">80 % · apprentissage</text><text class="flow-small" x="695" y="97">Pour choisir et ajuster le noyau</text></g>
+          <g class="flow-node flow-test"><rect x="866" y="36" width="218" height="88" rx="14"/><text x="975" y="70">20 % · test réservé</text><text class="flow-small" x="975" y="97">Aucun choix de noyau ici</text></g>
+          <text class="flow-title" x="62" y="215">Comparer les noyaux</text>
+          <text class="flow-caption" x="62" y="239" data-explanation="comparison">4 noyaux candidats · les mêmes 5 plis pour chaque noyau</text>
+          <g class="flow-loop">
+            <path d="M310 296H360" marker-end="url(#arrow-orange)"/>
+            <path d="M531 333V358" marker-end="url(#arrow-orange)"/>
+            <path d="M360 393H190V333" marker-end="url(#arrow-orange)"/>
+          </g>
+          <g class="flow-node flow-orange"><rect x="70" y="259" width="240" height="74" rx="12"/><text x="190" y="287">Séparer l’apprentissage</text><text class="flow-small" x="190" y="312" data-explanation="folds">en 5 plis de validation</text></g>
+          <g class="flow-node flow-orange"><rect x="360" y="259" width="342" height="74" rx="12"/><text x="531" y="287">Standardiser et entraîner le modèle</text><text class="flow-small" x="531" y="312" data-explanation="fold-training">Sur les autres plis</text></g>
+          <g class="flow-node flow-orange"><rect x="360" y="358" width="342" height="68" rx="12"/><text x="531" y="385">Prédire le pli laissé de côté</text><text class="flow-small" x="531" y="409">RMSE</text></g>
+          <text class="flow-caption" x="82" y="351">Répéter pour</text><text class="flow-caption" x="82" y="370">chacun des</text><text class="flow-repeat" x="82" y="392" data-explanation="loop">5 plis</text><text class="flow-caption" x="82" y="423">Un modèle indépendant par pli</text>
+          <text class="flow-caption" x="62" y="443">Les 20 % de validation finale ne sont jamais utilisés dans cette partie.</text>
+          <path class="flow-loop" d="M531 426V486" marker-end="url(#arrow-orange)"/>
+          <g class="flow-node flow-orange"><rect x="360" y="486" width="342" height="68" rx="12"/><text x="531" y="527">Retenir le meilleur noyau</text></g>
+          <path class="flow-final" d="M531 554V573H186V589" marker-end="url(#arrow-green)"/>
+          <path class="flow-final" d="M336 633H402" marker-end="url(#arrow-green)"/>
+          <path class="flow-final" d="M704 633H802" marker-end="url(#arrow-green)"/>
+          <g class="flow-node flow-green"><rect x="36" y="589" width="300" height="88" rx="14"/><text x="186" y="624">Réentraîner</text><text class="flow-small" x="186" y="651">Sur les 80 % d’apprentissage</text></g>
+          <g class="flow-node flow-green"><rect x="402" y="589" width="302" height="88" rx="14"/><text x="553" y="639">Modèle prêt à prédire</text></g>
+          <g class="flow-node flow-test"><rect x="802" y="589" width="282" height="88" rx="14"/><text x="943" y="639">Évaluer sur les 20 % de test</text></g>
+          <text class="flow-caption flow-test-label" x="975" y="175">Test réservé</text><text class="flow-caption flow-test-label" x="975" y="198">jusqu’à l’évaluation finale</text>
+        </svg>
+      </div>
+      <figcaption class="fit-count" id="explanation-fit-count" role="status" aria-live="polite">4 noyaux × 5 plis = 20 ajustements de validation, puis 1 ajustement final.</figcaption>
+    </figure>
+  </section>
+
+  <section class="explanation-panel" id="etapes" aria-labelledby="steps-title">
+    <p class="eyebrow">LE CALCUL PAS À PAS</p><h2 id="steps-title">Ce que fait Python à chaque étape.</h2>
+    <p class="explanation-lead">Ouvrez une étape pour lire son détail. X désigne les colonnes d’entrée ; Y est la variable à prédire.</p>
+    <details class="explanation-step" open><summary><span class="explanation-step-number">01</span><span>Lire les colonnes et préparer les observations</span></summary><div class="step-body">
+      <p>Le serveur lit le CSV ou la première feuille du fichier Excel d’entraînement. Vous choisissez une cible Y et une ou plusieurs entrées X. Seules les lignes complètes et numériques sur ces colonnes sont utilisées ; le nombre de lignes exclues est indiqué dans les résultats.</p>
+      <p>Les colonnes d’identification reconnues sont décochées par défaut. Le calcul exige au moins 10 observations valides et 8 configurations d’entrée distinctes.</p>
+    </div></details>
+    <details class="explanation-step"><summary><span class="explanation-step-number">02</span><span>Réserver le test, sans séparer les doublons</span></summary><div class="step-body">
+      <p>Les configurations X identiques sont regroupées. Le partage aléatoire attribue environ 80 % des configurations à l’apprentissage et 20 % au test final. Un groupe entier appartient à un seul ensemble, même si ses valeurs Y diffèrent.</p>
+      <p>Ces 20 % correspondent à la validation finale, appelée test ici. Les plis de validation croisée sont pris uniquement dans les 80 % d’apprentissage. La validation croisée respecte aussi ces groupes. Cela évite de valider le modèle sur une configuration qu’il a déjà vue. Les valeurs Y du test final ne servent ni à normaliser les données, ni à apprendre les paramètres, ni à choisir le noyau.</p>
+    </div></details>
+    <details class="explanation-step"><summary><span class="explanation-step-number">03</span><span>Mettre les variables à une échelle comparable</span></summary><div class="step-body">
+      <p>Dans chaque pli, chaque entrée est centrée et divisée par son écart-type, calculés uniquement sur les observations d’apprentissage de ce pli. La sortie Y est elle aussi centrée et réduite. Ces mêmes statistiques sont appliquées aux observations de validation.</p>
+      <div class="explanation-formula"><span>X̃<sub>i</sub> = (X<sub>i</sub> − m<sub>i</sub>) / s<sub>i</sub></span><span>Ỹ = (Y − m<sub>Y</sub>) / s<sub>Y</sub></span></div>
+      <p>La normalisation évite qu’une variable domine le calcul simplement à cause de son unité. Les prédictions et leurs écarts-types sont ensuite remis dans les unités originales de Y. Pour une variable constante, le diviseur vaut 1 afin d’éviter une division par zéro.</p>
+    </div></details>
+    <details class="explanation-step"><summary><span class="explanation-step-number">04</span><span>Comparer les familles de noyaux par validation croisée</span></summary><div class="step-body">
+      <p>Le noyau décrit la similarité entre deux configurations et les variations que le modèle peut représenter. Pour chaque candidat, Python entraîne un modèle sur tous les plis sauf un, prédit le pli réservé et mesure son erreur RMSE. Il recommence jusqu’à ce que chaque pli ait servi à la validation. <strong>Chaque tour repart d’un nouveau modèle</strong> : il ne reprend ni les paramètres appris, ni les prédictions du tour précédent. La flèche de retour du schéma signifie « passer au pli suivant ».</p>
+      <p>Le classement utilise la <strong>moyenne des RMSE entre plis</strong>, avec les mêmes partitions pour chaque candidat. L’écart-type affiché décrit la variation du score entre plis ; ce n’est pas l’incertitude d’une prédiction.</p>
+      <div class="explanation-table-scroll"><table class="explanation-table"><caption>Les noyaux actuellement testés</caption><thead><tr><th scope="col">Candidat</th><th scope="col">Hypothèse représentée</th></tr></thead><tbody>
+        <tr><th scope="row">RBF (ARD)</th><td>Une réponse très régulière, avec une longueur par entrée.</td></tr>
+        <tr><th scope="row">Matérn 3/2 (ARD)</th><td>Une réponse moins lisse que le RBF.</td></tr>
+        <tr><th scope="row">Matérn 5/2 (ARD)</th><td>Une régularité intermédiaire entre Matérn 3/2 et RBF.</td></tr>
+        <tr><th scope="row">RationalQuadratic</th><td>Un mélange d’échelles avec une longueur commune aux entrées.</td></tr>
+        <tr><th scope="row">Linéaire</th><td>Une tendance affine.</td></tr>
+        <tr><th scope="row">Quadratique</th><td>Une réponse polynomiale de degré au plus 2.</td></tr>
+        <tr><th scope="row">Linéaire + Matérn 3/2</th><td>Une tendance globale et des variations locales.</td></tr>
+        <tr><th scope="row">Deux RBF (ARD)</th><td>Deux longueurs de variation par entrée.</td></tr>
+      </tbody></table></div>
+
+      <section class="kernel-gallery" aria-label="Formules et exemples des noyaux">
+        <div class="kernel-gallery-heading"><div><p class="eyebrow">LES NOYAUX EN 1D</p><h3>Une formule, une forme.</h3></div><div class="kernel-navigation"><button type="button" id="kernel-previous" aria-label="Noyau précédent">←</button><span id="kernel-position" role="status" aria-live="polite">1 / 8</span><button type="button" id="kernel-next" aria-label="Noyau suivant">→</button></div></div>
+        <p class="kernel-gallery-intro">Les mêmes six observations, les mêmes axes et des paramètres fixes pour comparer les noyaux. La courbe bleue est la moyenne prédite ; la zone pâle est son intervalle à 95 %.</p>
+        <div class="kernel-vignette">
+          <div class="kernel-description"><h4 id="kernel-name">RBF</h4><p id="kernel-summary">Une interpolation très lisse, avec des transitions régulières.</p><div class="kernel-formula" id="kernel-formula">k(x, x′) = exp(−r² / 2)</div><p class="kernel-parameters" id="kernel-parameters">r = |x − x′| / ℓ · ℓ = 0,85</p><p class="kernel-reading" id="kernel-reading">La longueur ℓ contrôle la vitesse à laquelle la courbe peut varier.</p></div>
+          <figure class="kernel-chart"><img id="kernel-example" src="/static/kernel-examples/rbf.svg" alt="Exemple 1D du noyau RBF : observations, moyenne prédite et intervalle à 95 %" width="640" height="380" loading="lazy"><figcaption>Exemple pédagogique sur des données synthétiques.</figcaption></figure>
+        </div>
+        <div id="kernel-choices" class="kernel-choices" aria-label="Choisir un noyau"></div>
+        <p class="kernel-footnote">Formules du signal en 1D, avec une amplitude fixée à 1 et une variance de bruit de 0,0001. Ici, les paramètres ne sont pas optimisés. Dans l’outil, ils sont appris à partir de vos données. Les noyaux linéaire et quadratique ajustent une tendance et ne passent pas nécessairement par chaque observation.</p>
+      </section>
+      <p>Tous les candidats incluent une amplitude de signal et un bruit d’observation. <abbr title="Automatic Relevance Determination">ARD</abbr> signifie qu’une longueur de corrélation ℓ<sub>i</sub> est apprise séparément pour chaque entrée.</p>
+      <p>La recherche trouve le meilleur score parmi ces candidats et ces réglages. Elle ne garantit pas le meilleur noyau possible, ni un optimum global de ses paramètres.</p>
+    </div></details>
+    <details class="explanation-step"><summary><span class="explanation-step-number">05</span><span>Optimiser les paramètres et calculer le processus gaussien</span></summary><div class="step-body">
+      <p>Pour une famille donnée, l’optimiseur L-BFGS-B cherche les paramètres θ qui maximisent la log-vraisemblance marginale des observations d’apprentissage. Selon le noyau, θ contient l’amplitude, les longueurs ℓ<sub>i</sub>, le bruit ou d’autres paramètres. La recherche respecte les bornes configurées et utilise des relances depuis différentes initialisations.</p>
+      <p>Les relances essaient d’autres paramètres de départ pour éviter de retenir une mauvaise solution locale. Le mode complet en effectue 10 lors du réentraînement final ; le mode rapide en effectue 1. On conserve la solution avec la meilleure vraisemblance sur l’apprentissage.</p>
+    <div class="explanation-table-scroll"><table class="explanation-table"><caption>Les réglages illustrés</caption><thead><tr><th scope="col">Réglage</th><th scope="col">Valeur</th><th scope="col">Son rôle</th></tr></thead><tbody>
+      <tr><th scope="row">Plis de validation</th><td data-explanation="fold-number">5</td><td>Tester chaque noyau sur plusieurs sous-ensembles de l’apprentissage.</td></tr>
+      <tr><th scope="row">Relances par pli</th><td data-explanation="cv-restarts">2</td><td>Réessayer l’optimisation depuis d’autres paramètres initiaux.</td></tr>
+      <tr><th scope="row">Relances finales</th><td data-explanation="restart-number">10</td><td>Optimiser à nouveau le noyau retenu sur tout l’apprentissage.</td></tr>
+      <tr><th scope="row">Graine aléatoire</th><td>2025</td><td>Reproduire les partages et les initialisations avec les mêmes données et réglages.</td></tr>
+    </tbody></table></div>
+      <p>Une longueur est exprimée dans l’espace standardisé. Une grande longueur correspond à une variation lente selon cette entrée ; elle ne suffit pas, à elle seule, à mesurer son importance. Une borne atteinte est un diagnostic à examiner : un bruit proche de zéro peut être cohérent avec des simulations déterministes.</p>
+    </div></details>
+    <details class="explanation-step"><summary><span class="explanation-step-number">06</span><span>Réentraîner et mesurer la qualité finale</span></summary><div class="step-body">
+      <p>Après le classement, un nouveau modèle avec la famille gagnante est ajusté sur l’ensemble des <strong>80 % d’apprentissage</strong>, avec les relances finales. Il recalcule ses normalisations et ses paramètres. Le modèle conservé par le site reste entraîné sur ces 80 %.</p>
+      <p>Il prédit ensuite les 20 % de test réservés. La RMSE accentue les grandes erreurs ; la MAE mesure l’erreur absolue moyenne. La couverture mesure la part des observations de test dans l’intervalle prédictif μ ± 1,96σ.</p>
+      <div class="explanation-callout"><strong>Un intervalle nominal à 95 % n’est pas une garantie.</strong><p>La couverture réelle dépend des données et du modèle. Le test final sert à constater sa qualité ; utiliser plusieurs fois son score pour choisir les réglages finirait par biaiser cette évaluation.</p></div>
+      <p>Les coupes 1D font varier une entrée en fixant les autres à leur médiane d’apprentissage. Les observations affichées sur une coupe sont projetées sur son axe : elles ne correspondent pas nécessairement à ces mêmes valeurs fixes.</p>
+    </div></details>
+  </section>
+  <section class="explanation-panel" id="apres" aria-labelledby="after-title">
+    <p class="eyebrow">APRÈS L’ENTRAÎNEMENT</p><h2 id="after-title">Réutiliser le modèle et enrichir les données.</h2>
+    <div class="after-grid">
+      <article><span class="after-icon" aria-hidden="true">↗</span><h3>Un point ou un Excel</h3><p>Les nouvelles entrées utilisent la normalisation déjà apprise. Le modèle calcule leurs sorties sans réentraînement. Pour Excel, les colonnes choisies sont lues puis les prédictions sont écrites dans une copie du classeur ; les cellules déjà remplies sont conservées par défaut.</p></article>
+      <article><span class="after-icon" aria-hidden="true">↓</span><h3>Sauvegarder et rouvrir</h3><p>Le fichier .gpmodel conserve le noyau appris, les normalisations, la factorisation et les coefficients, ainsi que les données et résultats. La réouverture reconstitue les prédictions sur CPU sans nouvel ajustement, même si l’entraînement initial utilisait CUDA.</p></article>
+      <article><span class="after-icon" aria-hidden="true">+</span><h3>Proposer des simulations</h3><p>Le site explore le domaine d’entrée, classe des candidats et choisit un lot diversifié. Le CSV exporté laisse Y vide : les sorties estimées ne deviennent jamais automatiquement des observations d’apprentissage.</p></article>
+    </div>
+    <details class="explanation-step"><summary><span class="explanation-step-number">+</span><span>Comment les configurations à mesurer sont-elles choisies ?</span></summary><div class="step-body">
+      <ol class="acquisition-steps">
+        <li>Générer <strong>2 048 candidats</strong> par hypercube latin dans les bornes choisies, avec la graine 2025. Pour une entrée entière, convertir ces candidats en valeurs discrètes.</li>
+        <li>Retirer les doublons et les configurations déjà présentes dans les données importées, y compris celles du test.</li>
+        <li>Calculer la distance au voisin connu le plus proche, après standardisation sur les configurations connues, et l’incertitude du GP sur sa fonction. Pour cette dernière, soustraire la variance du bruit d’observation de la variance prédictive.</li>
+        <li>Si demandé, conserver les candidats dont la <strong>moyenne prédite</strong> appartient à la plage de Y visée. La future mesure peut être différente.</li>
+        <li>Combiner à parts égales les rangs de distance et d’incertitude, puis sélectionner de 1 à 30 points en réduisant la priorité des candidats proches de ceux déjà retenus.</li>
+      </ol>
+      <p>La distribution de Y montre aussi les plages de sortie peu représentées, dans 12 classes de largeur égale. Une plage rare ne prouve pas qu’il manque des entrées à cet endroit.</p>
+      <p>Les bornes définissent une boîte : les contraintes physiques entre variables ne sont pas encore décrites. L’incertitude dépend du modèle, et le lot proposé est une aide exploratoire à vérifier avant de demander des simulations.</p>
+    </div></details>
+  </section>
+  <section class="explanation-panel" id="code" aria-labelledby="code-title">
+    <p class="eyebrow">LE BACKEND LOCAL</p><h2 id="code-title">Où se trouve chaque partie du calcul ?</h2>
+    <p class="explanation-lead">Le navigateur affiche l’interface et les graphiques. Il communique avec le serveur Flask local, qui exécute les modules Python. L’entraînement s’effectue en arrière-plan et l’interface consulte sa progression.</p>
+    <div class="backend-strip"><span>Navigateur<br><small>HTML · CSS · JavaScript · Plotly</small></span><span aria-hidden="true">↔</span><span>Flask local<br><small>Lecture des fichiers et API</small></span><span aria-hidden="true">→</span><span>Calcul Python<br><small>scikit-learn ou PyTorch / CUDA</small></span></div>
+    <div class="explanation-table-scroll"><table class="explanation-table"><caption>Modules du dossier website</caption><thead><tr><th scope="col">Fichier</th><th scope="col">Responsabilité</th></tr></thead><tbody>
+      <tr><th scope="row"><code>api.py</code></th><td>Imports, tâches d’analyse, progression, prédictions et téléchargements.</td></tr>
+      <tr><th scope="row"><code>analysis.py</code></th><td>Nettoyage des colonnes sélectionnées, partage par groupes, validation croisée, classement et résultats.</td></tr>
+      <tr><th scope="row"><code>models.py</code></th><td>Banque de noyaux, bornes, normalisation et entraînement du GP.</td></tr>
+      <tr><th scope="row"><code>gpu_model.py</code></th><td>Calcul matriciel PyTorch optionnel sur CUDA pour les quatre noyaux de la banque simple.</td></tr>
+      <tr><th scope="row"><code>acquisition.py</code></th><td>Distance, incertitude et diversité des configurations proposées.</td></tr>
+      <tr><th scope="row"><code>excel_prediction.py</code></th><td>Correspondance des colonnes et écriture dans une copie du classeur.</td></tr>
+      <tr><th scope="row"><code>model_io.py</code></th><td>Sauvegarde du modèle appris et réouverture sans entraînement.</td></tr>
+      <tr><th scope="row"><code>pdf_export.py</code></th><td>Assemblage en PDF des images des graphiques envoyées par le navigateur.</td></tr>
+    </tbody></table></div>
+    <p>Après une modification Python, il faut redémarrer le serveur ; les modèles déjà entraînés conservent leurs paramètres.</p>
+    <div class="explanation-references"><span>Pour approfondir :</span><a href="https://scikit-learn.org/stable/modules/gaussian_process.html" target="_blank" rel="noopener">Processus gaussiens · scikit-learn ↗</a><a href="https://scikit-learn.org/stable/modules/cross_validation.html" target="_blank" rel="noopener">Validation croisée · scikit-learn ↗</a><a href="https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.KFold.html" target="_blank" rel="noopener">KFold · scikit-learn ↗</a></div>
+  </section>
+</main>
+</body>
+</html>
