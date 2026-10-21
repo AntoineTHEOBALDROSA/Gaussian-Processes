@@ -5,7 +5,7 @@
 Depuis la racine du projet :
 
 ```bash
-./website/start.sh
+./start.sh
 ```
 
 Ouvrir **http://127.0.0.1:8000**.
