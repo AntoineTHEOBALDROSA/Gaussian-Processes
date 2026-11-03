@@ -73,8 +73,8 @@ def inspect_sheet(raw, sheet, header_row):
         if sheet not in book.sheetnames:
             raise ValueError('Choisissez une feuille présente dans le classeur.')
         ws = book[sheet]
-        if (ws.max_column or 0) > 200:
-            raise ValueError('Cette fonction accepte jusqu’à 200 colonnes par feuille.')
+        if (ws.max_column or 0) > 16384:
+            raise ValueError('La feuille dépasse le nombre de colonnes accepté par Excel.')
         if header_row >= (ws.max_row or 1):
             raise ValueError('Aucune ligne de données après les titres.')
         rows = list(ws.iter_rows(min_row=header_row, max_row=min(ws.max_row, header_row+3), values_only=True))
@@ -116,6 +116,9 @@ def numeric(value):
 
 
 def predict_workbook(raw, model, features, options):
+    from typed_models import ModelBundle
+    if isinstance(model, ModelBundle):
+        return predict_bundle_workbook(raw, model, features, options)
     if not isinstance(options, dict):
         raise ValueError('Paramètres Excel invalides.')
     sheet, header = options.get('sheet'), options.get('header_row')
@@ -167,7 +170,15 @@ def predict_workbook(raw, model, features, options):
                 if not overwrite and occupied(row_number):
                     existing += 1
                     continue
-                point = [numeric(values[c-1]) for c in columns]
+                if hasattr(model, 'encoder'):
+                    point = [values[c-1] for c in columns]
+                    try:
+                        model.encoder.transform(np.array([point],dtype=object))
+                    except (ValueError, TypeError):
+                        invalid.append(row_number)
+                        continue
+                else:
+                    point = [numeric(values[c-1]) for c in columns]
                 if any(v is None for v in point):
                     invalid.append(row_number)
                     continue
@@ -175,14 +186,17 @@ def predict_workbook(raw, model, features, options):
         finally:
             book.close()
         if not points:
+            if hasattr(model,'encoder'):
+                return raw,dict(predicted=0,skipped_invalid=len(invalid),skipped_existing=existing,invalid_rows=invalid[:20],output=letter)
             raise ValueError('Aucune ligne à prédire : vérifiez les entrées, les lignes choisies et les cellules de sortie déjà remplies.')
         predictions = []
         with threadpool_limits(limits=1):
             for start in range(0, len(points), 256):
-                values = model.predict(np.array(points[start:start+256]))
-                if not np.isfinite(values).all():
+                values = model.predict(np.array(points[start:start+256], dtype=object if hasattr(model,'encoder') else float))
+                categorical = getattr(model, 'categorical', False)
+                if not categorical and not np.isfinite(values).all():
                     raise ValueError('Le modèle produit une valeur non finie pour ces entrées.')
-                predictions.extend(float(v) for v in values)
+                predictions.extend(str(v) if categorical else float(v) for v in values)
 
         def output_cell(row_number):
             ref = f'{letter}{row_number}'
@@ -208,7 +222,11 @@ def predict_workbook(raw, model, features, options):
             for child in list(cell):
                 cell.remove(child)
             cell.attrib.pop('t', None)
-            etree.SubElement(cell, f'{{{NS}}}v').text = repr(value)
+            if isinstance(value, str):
+                cell.set('t','inlineStr')
+                etree.SubElement(etree.SubElement(cell, f'{{{NS}}}is'), f'{{{NS}}}t').text = value
+            else:
+                etree.SubElement(cell, f'{{{NS}}}v').text = repr(value)
         if not occupied(header):
             cell = output_cell(header)
             for child in list(cell):
@@ -243,3 +261,47 @@ def predict_workbook(raw, model, features, options):
                     writer.writestr(entry, changed.get(entry.filename, archive.read(entry.filename)))
     return result.getvalue(), dict(predicted=len(points), skipped_invalid=len(invalid), skipped_existing=existing,
                                   invalid_rows=invalid[:20], output=letter)
+
+
+class SingleOutput:
+    def __init__(self, bundle, name):
+        self.encoder=bundle.encoder; self.entry=bundle.outputs[name]
+        self.categorical=self.entry['type']=='categorical'
+
+    def predict(self, X):
+        return self.entry['model'].predict(self.encoder.transform(X))
+
+
+def predict_bundle_workbook(raw, model, features, options):
+    if not isinstance(options,dict): raise ValueError('Paramètres Excel invalides.')
+    info=inspect_sheet(raw,options.get('sheet'),options.get('header_row'))
+    count=len(info['columns']); outputs=options.get('outputs')
+    if outputs is None:
+        outputs={name:dict(column=count+i+1,name=name+' prédit') for i,name in enumerate(model.outputs)}
+    if not isinstance(outputs,dict) or set(outputs)!=set(model.outputs):
+        raise ValueError('Associez une colonne de sortie à chaque cible du modèle.')
+    mappings=options.get('mapping')
+    if not isinstance(mappings,dict) or set(mappings)!=set(features):
+        raise ValueError('Associez chaque entrée à une colonne Excel.')
+    destinations=[]
+    for name,spec in outputs.items():
+        if not isinstance(spec,dict): raise ValueError('Association des sorties invalide.')
+        col=integer(spec.get('column'),1,min(16384,count+len(outputs)),'Colonne de sortie')
+        if col in mappings.values() or col in destinations:
+            raise ValueError('Chaque sortie doit utiliser une colonne distincte des entrées et des autres sorties.')
+        destinations.append(col)
+    new=sorted(c for c in destinations if c>count)
+    if new!=list(range(count+1,count+len(new)+1)):
+        raise ValueError('Ajoutez les nouvelles colonnes de sortie à la suite du tableau, sans colonne vide intermédiaire.')
+    summaries={}
+    for name,spec in sorted(outputs.items(),key=lambda item:item[1]['column']):
+        settings=dict(options,output_column=spec['column'],output_name=spec.get('name',name+' prédit'))
+        raw,summary=predict_workbook(raw,SingleOutput(model,name),features,settings)
+        summaries[name]=summary
+    if not any(s['predicted'] for s in summaries.values()):
+        raise ValueError('Aucune prédiction à écrire : vérifiez les entrées, les modalités, les cellules existantes et les lignes choisies.')
+    return raw,dict(outputs=summaries,predicted=sum(s['predicted'] for s in summaries.values()),
+        skipped_invalid=sum(s['skipped_invalid'] for s in summaries.values()),
+        skipped_existing=sum(s['skipped_existing'] for s in summaries.values()),
+        invalid_rows=sorted({r for s in summaries.values() for r in s['invalid_rows']})[:20],
+        output=', '.join(s['output'] for s in summaries.values()))
