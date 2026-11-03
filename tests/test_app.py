@@ -16,7 +16,8 @@ class LocalWorkflowTests(unittest.TestCase):
 
     def test_rejects_bad_files_and_external_requests(self):
         self.assertEqual(self.upload('hello', 'test.txt').status_code, 400)
-        self.assertEqual(self.upload('x,y\na,b\nc,d').status_code, 400)
+        # Categorical-only files are now valid imports (training still needs >=10 rows).
+        self.assertEqual(self.upload('x,y\na,b\nc,d').status_code, 200)
         self.assertEqual(self.client.post('/api/example', headers={'Origin':'https://example.org'}).status_code, 403)
         self.assertEqual(self.client.get('/', headers={'Host':'malicious.test'}).status_code, 400)
 
@@ -27,7 +28,7 @@ class LocalWorkflowTests(unittest.TestCase):
         self.assertEqual(data['features'], ['X'])
         self.assertEqual(data['target'], 'F')
         self.assertEqual(data['columns'][2]['invalid'], 1)
-        self.assertEqual(data['records'][0][1], '1.5')
+        self.assertEqual(data['records'][0][1], '1,5')
         self.assertEqual(data['numeric_data']['X'], [1.5, 2.5, 3.5])
         self.assertEqual(data['numeric_data']['F'], [2.5, None, 5.5])
 
@@ -44,7 +45,7 @@ class LocalWorkflowTests(unittest.TestCase):
         csv=pd.DataFrame({'ID':range(len(x)),'X':x,'F':np.sin(x)+x*x}).to_csv(index=False)
         imported=self.upload(csv).get_json()
         self.assertEqual(len(imported['records']), 24)
-        self.assertAlmostEqual(imported['records'][-1][1], 2.0)
+        self.assertAlmostEqual(float(imported['records'][-1][1]), 2.0)
         options=dict(dataset_id=imported['id'], target='F',features=['X'],quality='quick',device='cpu')
         response=self.client.post('/api/analyze',json=options)
         self.assertEqual(response.status_code,202,response.get_json())
