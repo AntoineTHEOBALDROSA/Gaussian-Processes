@@ -72,7 +72,7 @@ const matrices = new Map();
 const localPlotConfig = {responsive:true, displayModeBar:false, displaylogo:false, scrollZoom:false};
 function renderInputMatrix(id, dataset, features) {
   const host = document.getElementById(id);
-  const key = JSON.stringify([dataset.id, features]);
+  const key = JSON.stringify([dataset.id, features, selectedTypes()]);
   const previous = matrices.get(id);
   if (previous?.key === key) return;
   if (previous) {
@@ -103,13 +103,19 @@ function renderInputMatrix(id, dataset, features) {
     const element = document.createElement('div'); element.className = 'matrix-plot';
     element.setAttribute('role', 'img'); element.setAttribute('aria-label', title.textContent);
     cell.append(title, note, element); grid.append(cell);
-    const valuesX = dataset.numeric_data[horizontal], valuesY = dataset.numeric_data[vertical];
+    const typeX=state.configuration[horizontal]?.type||'numeric',typeY=state.configuration[vertical]?.type||'numeric';
+    const column=(name,type)=>{const index=dataset.columns.findIndex(c=>c.name===name);return dataset.records.map(r=>{const v=r[index];if(v===null||String(v).trim()==='')return null;if(type==='categorical')return categoryText(v);try{return decimal(v,name);}catch{return null;}});};
+    const valuesX=column(horizontal,typeX),valuesY=column(vertical,typeY);
     let traces;
     const config = {height:290, autosize:true, margin:{l:54,r:18,t:14,b:50}, showlegend:false,
       font:{family:'Inter, Segoe UI, sans-serif',size:13,color:'#677a96'}, paper_bgcolor:'#fff',plot_bgcolor:'#fff',
       xaxis:{title:{text:horizontal,standoff:5},gridcolor:'#edf1f6',zeroline:false},
       yaxis:{title:{text:i===j?'Effectif':vertical,standoff:5},gridcolor:'#edf1f6',zeroline:false}};
-    if (i === j) {
+    if(i===j && typeX==='categorical'){
+      const counts=new Map();valuesX.filter(v=>v!==null).forEach(v=>counts.set(v,(counts.get(v)||0)+1));note.textContent=`${counts.size} modalités · N = ${[...counts.values()].reduce((a,b)=>a+b,0)}`;traces=[{type:'bar',x:[...counts.keys()],y:[...counts.values()],marker:{color:'#9dbbe9'}}];config.xaxis.type='category';
+    }else if(i!==j && typeX==='categorical' && typeY==='categorical'){
+      const xs=[...new Set(valuesX.filter(v=>v!==null))],ys=[...new Set(valuesY.filter(v=>v!==null))],z=ys.map(()=>xs.map(()=>0));let count=0;valuesX.forEach((v,k)=>{if(v!==null&&valuesY[k]!==null){z[ys.indexOf(valuesY[k])][xs.indexOf(v)]++;count++;}});note.textContent=`${count} observations · effectifs par paire`;traces=[{type:'heatmap',x:xs,y:ys,z,colorscale:[[0,'#f1f5fc'],[1,'#316bd1']],showscale:false}];config.xaxis.type='category';config.yaxis.type='category';
+    }else if (i === j) {
       const values = valuesX.filter(Number.isFinite);
       const mean = values.length ? values.reduce((sum,x)=>sum+x/values.length,0) : NaN;
       const variance = values.length ? values.reduce((sum,x)=>sum+(x-mean)**2/values.length,0) : NaN;
@@ -118,10 +124,11 @@ function renderInputMatrix(id, dataset, features) {
       if (Number.isFinite(mean)) config.shapes = [{type:'line',xref:'x',yref:'paper',x0:mean,x1:mean,y0:0,y1:1,line:{color:'#285fcd',width:2,dash:'dash'}}];
     } else {
       const x = [], y = [];
-      valuesX.forEach((value,k) => { if(Number.isFinite(value) && Number.isFinite(valuesY[k])) {x.push(value);y.push(valuesY[k]);} });
+      valuesX.forEach((value,k) => { if(value!==null && valuesY[k]!==null) {x.push(value);y.push(valuesY[k]);} });
       note.textContent = `${x.length} observations`;
-      traces = [{type:'scatter',mode:'markers',x,y,marker:{size:4,color:'#316bd1',opacity:.55},hovertemplate:'x : %{x:.6g}<br>y : %{y:.6g}<extra></extra>'}];
+      traces = [{type:'scatter',mode:'markers',x,y,marker:{size:4,color:'#316bd1',opacity:.55},hovertemplate:'x : %{x}<br>y : %{y}<extra></extra>'}];
     }
+    if(typeX==='categorical')config.xaxis.type='category';if(i!==j && typeY==='categorical')config.yaxis.type='category';
     const plot = {element,traces,layout:config,rendered:false}; cell.matrixPlot = plot; plots.push(plot); observer.observe(cell);
   }));
   const resize = new ResizeObserver(() => {
@@ -138,11 +145,11 @@ function setupPrediction() {
   document.getElementById('prediction-output').hidden = true;
   document.getElementById('predict-button').disabled = false;
   state.result.input_ranges.forEach((range, index) => {
-    const field = document.createElement('div'), label = document.createElement('label'), input = document.createElement('input'), hint = document.createElement('small');
+    const field = document.createElement('div'), label = document.createElement('label'), input = document.createElement(range.type==='categorical'?'select':'input'), hint = document.createElement('small');
     label.htmlFor = `new-point-${index}`; label.textContent = range.name;
-    input.id = label.htmlFor; input.type = 'text'; input.inputMode = 'decimal'; input.required = true;
-    input.value = String(range.median); input.dataset.feature = range.name;
-    hint.id = `new-point-hint-${index}`; hint.textContent = `Apprentissage : ${number(range.minimum,6)} à ${number(range.maximum,6)}`;
+    input.id=label.htmlFor;input.required=true;input.dataset.feature=range.name;input.dataset.type=range.type||'numeric';
+    if(range.type==='categorical'){range.categories.forEach(c=>input.add(new Option(c,c)));input.value=range.mode;}else{input.type='text';input.inputMode='decimal';input.value=String(range.median);}
+    hint.id = `new-point-hint-${index}`; hint.textContent = range.type==='categorical'?'Modalités de l’apprentissage':`Apprentissage : ${number(range.minimum,6)} à ${number(range.maximum,6)}`;
     input.setAttribute('aria-describedby',hint.id);
     field.append(label,input,hint); container.append(field);
   });
@@ -160,7 +167,8 @@ document.getElementById('prediction-form').addEventListener('submit', async even
   const values = Object.create(null);
   output.hidden = true; errorBox.hidden = true;
   try {
-    document.querySelectorAll('#prediction-inputs input').forEach(input => {
+    document.querySelectorAll('#prediction-inputs input, #prediction-inputs select').forEach(input => {
+      if(input.dataset.type==='categorical'){values[input.dataset.feature]=input.value;return;}
       const raw = input.value.trim().replace(',', '.');
       if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(raw) || !Number.isFinite(Number(raw))) throw new Error(`Saisissez un nombre fini pour ${input.dataset.feature}.`);
       values[input.dataset.feature] = Number(raw);
@@ -169,9 +177,8 @@ document.getElementById('prediction-form').addEventListener('submit', async even
     const prediction = await api(`/api/jobs/${job}/predict`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values})});
     if (state.result !== result || state.job !== job || predictionVersion !== version) return;
     output.replaceChildren();
-    const mean = document.createElement('strong'); mean.textContent = `${prediction.target} prédit = ${number(prediction.mean,8)}`;
-    const interval = document.createElement('p'); interval.textContent = `Intervalle prédictif nominal à 95 % : [${number(prediction.lower,8)} ; ${number(prediction.upper,8)}]`;
-    output.append(mean,interval);
+    const outputs=prediction.outputs||{[prediction.target]:{...prediction,type:'numeric'}};
+    (state.result.targets||[prediction.target]).forEach(name=>{const p=outputs[name],card=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');card.className='prediction-item';if(p.type==='categorical'){title.textContent=name+' : '+p.label;detail.textContent=Object.entries(p.probabilities).map(([label,prob])=>label+' : '+number(prob*100,3)+' %').join(' · ');}else{title.textContent=name+' prédit = '+number(p.mean,8);detail.textContent=`Intervalle prédictif nominal à 95 % : [${number(p.lower,8)} ; ${number(p.upper,8)}]`;}card.append(title,detail);output.append(card);});
     if (prediction.outside.length) {
       const note = document.createElement('p'); note.className = 'extrapolation';
       note.textContent = `Extrapolation : ${prediction.outside.join(', ')} hors de la plage d’apprentissage. La prédiction peut être moins fiable.`; output.append(note);

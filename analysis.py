@@ -8,16 +8,17 @@ from sklearn.model_selection import KFold, train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from threadpoolctl import threadpool_limits
 from models import GPRWrapper, noyaux_candidats, search_options, bound_diagnostics
+from typed_models import numeric_column
 
 
 def prepare_data(frame, target, features):
     if not isinstance(target, str) or target not in frame.columns:
         raise ValueError('Choisissez une variable cible présente dans le fichier.')
-    if (not isinstance(features, list) or not features or len(features) > 20
+    if (not isinstance(features, list) or not features
             or any(not isinstance(c, str) or c not in frame.columns for c in features)
             or target in features or len(set(features)) != len(features)):
-        raise ValueError('Choisissez entre 1 et 20 entrées distinctes, différentes de la cible.')
-    selected = frame[features + [target]].apply(pd.to_numeric, errors='coerce')
+        raise ValueError('Choisissez au moins une entrée distincte, différente de la cible.')
+    selected = frame[features + [target]].apply(numeric_column)
     selected = selected.replace([np.inf, -np.inf], np.nan).dropna()
     if len(selected) < 10:
         raise ValueError('Il faut au moins 10 lignes numériques complètes pour ces variables.')
@@ -34,6 +35,9 @@ def prepare_data(frame, target, features):
 
 
 def run_analysis(frame, options, progress):
+    if 'targets' in options:
+        from study import run_study
+        return run_study(frame, options, progress)
     start = perf_counter()
     features, target = options['features'], options['target']
     selected, X, y, train, test = prepare_data(frame, target, features)

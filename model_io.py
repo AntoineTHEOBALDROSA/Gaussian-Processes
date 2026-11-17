@@ -103,6 +103,10 @@ class SavedModel:
 
 
 def save_model(job):
+    from typed_models import ModelBundle
+    if isinstance(job['model'], ModelBundle):
+        from bundle_io import save_bundle
+        return save_bundle(job)
     model = job['model']
     if isinstance(model, SavedModel):
         arrays, kernel = model.arrays, model.kernel
@@ -140,7 +144,7 @@ def read_array(archive, name):
         shape, fortran, dtype = np.lib.format.read_array_header_2_0(stream)
     else:
         raise ValueError('Format numérique non reconnu.')
-    if dtype.kind != 'f' or dtype.itemsize != 8 or len(shape) not in (1, 2) or any(n < 1 or n > 3000 for n in shape):
+    if dtype.kind != 'f' or dtype.itemsize != 8 or len(shape) not in (1, 2) or any(n < 1 or n > 30000 for n in shape):
         raise ValueError('Tableau numérique invalide.')
     expected = int(np.prod(shape)) * 8
     if len(raw) - stream.tell() != expected:
@@ -159,7 +163,7 @@ def validate_study(manifest, n, dimensions):
             or not isinstance(target, str) or target in features):
         raise ValueError('Variables du modèle invalides.')
     columns = [c['name'] for c in d['columns']]
-    if (not 2 <= len(columns) <= 50 or len(set(columns)) != len(columns)
+    if (len(columns) < 2 or len(set(columns)) != len(columns)
             or not set(features + [target]) <= set(columns)
             or not isinstance(d['filename'], str) or not 10 <= d['rows'] <= 3000
             or len(d['records']) != d['rows'] or any(len(row) != len(columns) for row in d['records'])):
@@ -200,6 +204,13 @@ def open_model(source):
     try:
         with zipfile.ZipFile(source) as archive:
             entries = archive.infolist()
+            if (sum(e.file_size for e in entries) > MAX_ARCHIVE_BYTES or any(e.flag_bits & 1 for e in entries)
+                    or len(entries)>10000 or 'manifest.json' not in archive.namelist()):
+                raise ValueError('Archive invalide ou trop volumineuse.')
+            manifest = json.loads(archive.read('manifest.json'))
+            if manifest.get('format') == 'processus-gaussiens' and manifest.get('version') == 2:
+                from bundle_io import load_bundle
+                return load_bundle(archive, manifest)
             if (len(entries) != len(MEMBERS) or {e.filename for e in entries} != MEMBERS
                     or sum(e.file_size for e in entries) > MAX_ARCHIVE_BYTES
                     or any(e.flag_bits & 1 for e in entries)):
@@ -210,7 +221,7 @@ def open_model(source):
             arrays = {name: read_array(archive, name) for name in ARRAY_NAMES}
             csv = archive.read('predictions.csv')
         n, dimensions = arrays['x_train'].shape
-        if (not 1 <= dimensions <= 20 or arrays['cholesky'].shape != (n, n)
+        if (not 1 <= dimensions <= 30000 or n>3000 or arrays['cholesky'].shape != (n, n)
                 or arrays['coefficients'].shape != (n,)
                 or arrays['input_mean'].shape != (dimensions,) or arrays['input_scale'].shape != (dimensions,)
                 or (arrays['input_scale'] <= 0).any() or (np.diag(arrays['cholesky']) <= 0).any()

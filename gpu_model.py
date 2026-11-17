@@ -28,8 +28,8 @@ def choisir_device(device="cuda"):
         if not torch.cuda.is_available():
             raise RuntimeError(
                 "Aucun GPU CUDA accessible. Vérifier nvidia-smi et la version CUDA "
-                "de PyTorch dans le Python du notebook. Exécuter sur la machine RTX A4000. "
-                "Pour un essai CPU volontaire uniquement, choisir DEVICE_GPU = 'cpu'."
+                "de PyTorch dans le Python du serveur, l’allocation GPU et CUDA_VISIBLE_DEVICES. "
+                "Lancer tools/diagnose_gpu.py dans ce même environnement."
             )
         index = torch.cuda.current_device() if result.index is None else result.index
         if index >= torch.cuda.device_count():
@@ -102,10 +102,14 @@ class TorchGaussianProcessRegressor:
         values.update(self._fixes)
         return values
 
-    def _covariance_signal(self, differences_carrees, params):
+    def _covariance_signal(self, X, Y, params):
         amplitude = params["k1__k1__constant_value"][0]
         longueurs = params["k1__k2__length_scale"]
-        distance2 = (differences_carrees / longueurs.square()).sum(dim=-1)
+        # Two-dimensional matrices avoid the O(n² × dimensions) tensor that
+        # exhausted GPU memory with many input columns.
+        a, b = X / longueurs, Y / longueurs
+        distance2 = (a.square().sum(1)[:, None] + b.square().sum(1)[None, :]
+                     - 2 * (a @ b.T)).clamp_min(0)
         if isinstance(self.signal_, Matern):
             # Évite la dérivée infinie de sqrt(0) sur la diagonale et les doublons.
             distance = distance2.clamp_min(1e-30).sqrt()
@@ -124,7 +128,7 @@ class TorchGaussianProcessRegressor:
 
     def _factoriser(self, theta):
         params = self._parametres(theta)
-        covariance = self._covariance_signal(self._differences2, params)
+        covariance = self._covariance_signal(self._X, self._X, params)
         covariance = covariance + (params["k2__noise_level"][0] + self.alpha) * self._identite
         try:
             chol = torch.linalg.cholesky(covariance)
@@ -163,7 +167,6 @@ class TorchGaussianProcessRegressor:
         self.kernel_ = clone(self.kernel)
         self._preparer_noyau()
         self._X, self._y = self._tensor(X), self._tensor(y)
-        self._differences2 = (self._X[:, None, :] - self._X[None, :, :]).square()
         self._identite = torch.eye(len(X), dtype=torch.float64, device=self.device_)
         theta_initial = self.kernel_.theta.copy()
         self.optimization_results_ = []
@@ -206,7 +209,7 @@ class TorchGaussianProcessRegressor:
                     + 0.5 * len(y) * np.log(2.0 * np.pi)
                 ).cpu())
         # Ces tableaux ne servent plus une fois les hyperparamètres ajustés.
-        del self._differences2, self._identite
+        del self._identite
         return self
 
     def predict(self, X, return_std=False, batch_size=512):
@@ -224,8 +227,7 @@ class TorchGaussianProcessRegressor:
             params = self._parametres(self._theta)
             for debut in range(0, len(X), batch_size):
                 points = self._tensor(X[debut:debut + batch_size])
-                differences2 = (points[:, None, :] - self._X[None, :, :]).square()
-                covariance = self._covariance_signal(differences2, params)
+                covariance = self._covariance_signal(points, self._X, params)
                 moyennes.append((covariance @ self._coefficients).flatten().cpu().numpy())
                 if return_std:
                     v = torch.linalg.solve_triangular(self._chol, covariance.T, upper=False)

@@ -4,7 +4,10 @@ function updateExplanation() {
   const quick = document.getElementById('explanation-quality').value === 'quick';
   const folds = quick ? 3 : 5;
   const kernels = document.getElementById('explanation-bank').value === 'extended' ? 8 : 4;
+  const categorical=document.getElementById('explanation-task').value==='categorical';
+  const outputs=Math.max(1,Math.floor(Number(document.getElementById('explanation-outputs').value)||1));
   const values = {
+    score:categorical?'Log-loss':'RMSE',
     comparison: `${kernels} noyaux candidats · les mêmes ${folds} plis pour chaque noyau`,
     folds: `en ${folds} plis de validation`,
     'fold-training': 'Sur les autres plis',
@@ -15,10 +18,12 @@ function updateExplanation() {
   document.querySelectorAll('[data-explanation]').forEach(element => {
     element.textContent = values[element.dataset.explanation];
   });
-  document.getElementById('explanation-fit-count').textContent = `${kernels} noyaux × ${folds} plis = ${kernels*folds} ajustements de validation, puis 1 ajustement final.`;
+  document.getElementById('explanation-fit-count').textContent = `${outputs} sortie(s) × ${kernels} noyaux × ${folds} plis = ${outputs*kernels*folds} ajustements de validation, puis ${outputs} réentraînement(s) final(aux).`;
 }
 document.getElementById('explanation-quality').addEventListener('change', updateExplanation);
 document.getElementById('explanation-bank').addEventListener('change', updateExplanation);
+document.getElementById('explanation-task').addEventListener('change',updateExplanation);
+document.getElementById('explanation-outputs').addEventListener('input',updateExplanation);
 updateExplanation();
 
 // These fixed examples are generated with scikit-learn; no training is triggered here.

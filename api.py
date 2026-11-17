@@ -18,6 +18,10 @@ from pdf_export import make_pdf
 from models import search_options
 from excel_prediction import describe_workbook, inspect_sheet, predict_workbook
 from acquisition import suggestions
+from typed_models import ModelBundle, infer_type, numeric_column, category
+from study import prepare_study
+from design import generate_design
+from hardware import gpu_capabilities
 
 MAX_ROWS = 3000
 
@@ -28,23 +32,24 @@ def read_frame(source, filename):
         raise ValueError('Format non pris en charge. Choisissez un fichier CSV ou Excel (.xlsx).')
     try:
         if suffix == '.xlsx':
-            frame = pd.read_excel(source, nrows=MAX_ROWS + 1)
+            frame = pd.read_excel(source, nrows=MAX_ROWS + 1, dtype=object)
         else:
             raw = source.read()
             try:
                 content = raw.decode('utf-8-sig')
             except UnicodeDecodeError:
                 content = raw.decode('cp1252')
-            frame = pd.read_csv(io.StringIO(content), sep=None, engine='python', nrows=MAX_ROWS + 1)
-            # Les CSV français utilisent généralement ; et une virgule décimale.
+            frame = pd.read_csv(io.StringIO(content), sep=None, engine='python', nrows=MAX_ROWS + 1, dtype=object)
+            # Keep category labels (including codes and punctuation) intact.
+            # Numeric conversion, including French decimals, is column-specific.
             for column in frame.select_dtypes(include=['object', 'str']).columns:
-                frame[column] = frame[column].map(lambda v: v.strip().replace(',', '.') if isinstance(v, str) else v)
+                frame[column] = frame[column].map(lambda v:v.strip() if isinstance(v,str) else v)
     except Exception as exc:
         raise ValueError('Impossible de lire ce fichier. Vérifiez son format et la présence des noms de colonnes sur la première ligne.') from exc
     if frame.empty or len(frame.columns) < 2:
         raise ValueError('Le fichier doit contenir des données et au moins deux colonnes.')
-    if len(frame) > MAX_ROWS or len(frame.columns) > 50:
-        raise ValueError('Cette interface accepte jusqu’à 3 000 lignes et 50 colonnes par fichier.')
+    if len(frame) > MAX_ROWS:
+        raise ValueError('Cette interface accepte jusqu’à 3 000 lignes par fichier.')
     frame.columns = [str(c) for c in frame.columns]
     if len(set(frame.columns)) != len(frame.columns):
         raise ValueError('Les noms de colonnes doivent être distincts.')
@@ -54,20 +59,22 @@ def read_frame(source, filename):
 def describe(frame, filename, dataset_id):
     columns, numeric_data = [], {}
     for c in frame.columns:
-        converted = pd.to_numeric(frame[c], errors='coerce').replace([np.inf, -np.inf], np.nan)
+        converted = numeric_column(frame[c])
         numeric_data[c] = json.loads(converted.to_json(orient='values'))
-        columns.append(dict(name=c, numeric=bool(converted.notna().any()), invalid=int(converted.isna().sum())))
+        kind=infer_type(frame[c])
+        columns.append(dict(name=c, numeric=bool(converted.notna().any()), invalid=int(converted.isna().sum()),
+                            type=kind, missing=int(frame[c].isna().sum()), categories=sorted({category(v) for v in frame[c].dropna()}) if kind=='categorical' else []))
     numeric = [c['name'] for c in columns if c['numeric']]
-    target = 'F' if 'F' in numeric else (numeric[-1] if numeric else None)
+    target = 'F' if 'F' in frame.columns else frame.columns[-1]
     def is_id(name):
         return name.lower().strip() in ('id', 'index', 'num', 'numero', 'numéro', 'n°') or name.lower().startswith('unnamed:')
-    features = [c for c in numeric if c != target and not is_id(c)]
+    features = [c for c in frame.columns if c != target and not is_id(c)]
     return dict(id=dataset_id, filename=filename, rows=len(frame), columns=columns, target=target,
-                features=features[:20], records=json.loads(frame.to_json(orient='values')), numeric_data=numeric_data)
+                targets=[target], features=features, records=json.loads(frame.to_json(orient='values')), numeric_data=numeric_data)
 
 
 def register_api(app):
-    datasets, jobs, workbooks = OrderedDict(), OrderedDict(), OrderedDict()
+    datasets, jobs, workbooks, designs = OrderedDict(), OrderedDict(), OrderedDict(), OrderedDict()
     lock = threading.RLock()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gp-analysis')
     capability_cache = None
@@ -107,22 +114,13 @@ def register_api(app):
     @app.get('/api/capabilities')
     def capabilities():
         nonlocal capability_cache
-        if capability_cache is None:
-            capability_cache = dict(cuda=False, gpu=None)
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.linalg.cholesky(torch.eye(2, device='cuda', dtype=torch.float64))
-                    capability_cache = dict(cuda=True, gpu=torch.cuda.get_device_name())
-            except Exception:
-                pass
-        return jsonify(**capability_cache)
+        if capability_cache is None or time.monotonic()-capability_cache[0]>30 or request.args.get('refresh')=='1':
+            capability_cache = (time.monotonic(),gpu_capabilities())
+        return jsonify(**capability_cache[1])
 
     def add_dataset(frame, filename):
         dataset_id = uuid.uuid4().hex
         metadata = describe(frame, filename, dataset_id)
-        if sum(c['numeric'] for c in metadata['columns']) < 2:
-            raise ValueError('Au moins deux colonnes doivent contenir des valeurs numériques.')
         with lock:
             datasets[dataset_id] = (frame, metadata)
             while len(datasets) > 10:
@@ -187,7 +185,13 @@ def register_api(app):
             if entry is None:
                 raise ValueError('Ce fichier n’est plus en mémoire. Importez-le à nouveau.')
             frame = entry[0]
-            prepare_data(frame, options.get('target'), options.get('features'))
+            if 'targets' in options:
+                _,types,_,_,_,_ = prepare_study(frame,options)
+                options['target']=options['targets'][0]
+                if options['device']=='cuda' and all(types[t]=='categorical' for t in options['targets']):
+                    raise ValueError('Les sorties catégorielles utilisent la classification GP sur CPU. Choisissez CPU pour cette étude.')
+            else:
+                prepare_data(frame, options.get('target'), options.get('features'))
             job_id = uuid.uuid4().hex
             jobs[job_id] = dict(id=job_id, status='running', progress=0, title='Préparation', detail='Initialisation du modèle', started=time.time(), dataset=entry[1], options=options)
             while len(jobs) > 10:
@@ -201,7 +205,7 @@ def register_api(app):
             job = jobs.get(job_id)
             if job is None:
                 return jsonify(error='Cette analyse n’est plus disponible. Relancez-la depuis vos données.'), 404
-            excluded = {'csv', 'model'}
+            excluded = {'csv', 'model', 'design'}
             if request.args.get('details') != '1':
                 excluded.add('dataset')
             return jsonify({k: v for k, v in job.items() if k not in excluded})
@@ -228,6 +232,20 @@ def register_api(app):
         features = result['features']
         if not isinstance(values, dict) or set(values) != set(features):
             raise ValueError('Renseignez exactement les variables d’entrée du modèle : ' + ', '.join(features))
+        if isinstance(model,ModelBundle):
+            point=np.array([[values[c] for c in features]],dtype=object)
+            prediction=model.predict_all(point)
+            outputs={}
+            for name,p in prediction.items():
+                if p['type']=='numeric':
+                    mu,sigma=float(p['mean'][0]),float(p['std'][0])
+                    outputs[name]=dict(type='numeric',mean=mu,std=sigma,lower=mu-1.96*sigma,upper=mu+1.96*sigma)
+                else:
+                    outputs[name]=dict(type='categorical',label=str(p['labels'][0]),
+                        probabilities={c:float(p['probabilities'][0,j]) for j,c in enumerate(p['classes'])})
+            outside=[r['name'] for r in result['input_ranges'] if r['type']=='numeric' and not r['minimum']<=float(values[r['name']])<=r['maximum']]
+            primary=outputs[result['target']]
+            return jsonify(target=result['target'],outputs=outputs,outside=outside,**primary)
         if any(isinstance(values[c], bool) or not isinstance(values[c], (int, float)) for c in features):
             raise ValueError('Chaque entrée doit être un nombre fini.')
         try:
@@ -266,7 +284,7 @@ def register_api(app):
         dataset_id, job_id = uuid.uuid4().hex, uuid.uuid4().hex
         metadata = describe(frame, data['filename'], dataset_id)
         options = {**manifest['options'], 'dataset_id': dataset_id, 'device': 'cpu'}
-        metadata.update(target=options['target'], features=options['features'])
+        metadata.update(target=options['target'], targets=options.get('targets',[options['target']]), features=options['features'])
         entry = dict(id=job_id, status='done', progress=100, title='Modèle rouvert', detail='',
                      started=time.time(), dataset=metadata, options=options, result=manifest['result'],
                      csv=csv, model=model, restored=True)
@@ -336,4 +354,55 @@ def register_api(app):
     @app.post('/api/jobs/<job_id>/suggestions')
     def propose_points(job_id):
         entry = trained_job(job_id)
-        return jsonify(suggestions(entry['model'],entry['result'],request.get_json(silent=True)))
+        design=suggestions(entry['model'],entry['result'],request.get_json(silent=True))
+        with lock: entry['design']=design
+        return jsonify(design)
+
+    @app.post('/api/design')
+    def make_design():
+        payload=request.get_json(silent=True)
+        if not isinstance(payload,dict): raise ValueError('Paramètres du plan invalides.')
+        with lock: entry=datasets.get(payload.get('dataset_id')) if isinstance(payload.get('dataset_id'),str) else None
+        if entry is None: raise ValueError('Importez un jeu de données pour définir les variables du plan.')
+        frame,metadata=entry
+        features=payload.get('features'); overrides=payload.get('column_types',{})
+        if (not isinstance(features,list) or not features
+                or any(not isinstance(n,str) or n not in frame.columns for n in features) or len(set(features))!=len(features)
+                or not isinstance(overrides,dict)):
+            raise ValueError('Choisissez des entrées distinctes et présentes dans le fichier.')
+        schema=[]; selected=frame[features].copy()
+        for name in features:
+            kind=overrides.get(name,infer_type(frame[name]))
+            if kind not in ('numeric','categorical'): raise ValueError('Type d’entrée invalide.')
+            column=dict(name=name,type=kind)
+            if kind=='categorical':
+                selected[name]=selected[name].map(lambda v:np.nan if pd.isna(v) else category(v))
+                column['categories']=sorted(selected[name].dropna().unique().tolist())
+            else: selected[name]=numeric_column(selected[name])
+            schema.append(column)
+        exclude=payload.get('exclude_known',True)
+        if type(exclude) is not bool: raise ValueError('Option d’exclusion des observations invalide.')
+        design=generate_design(payload,schema,selected.dropna().to_numpy(dtype=object).tolist() if exclude else None)
+        design['targets']=payload.get('targets',[])
+        if not isinstance(design['targets'],list) or any(not isinstance(n,str) or n not in frame.columns or n in features for n in design['targets']):
+            raise ValueError('Les sorties du plan doivent être des colonnes distinctes des entrées.')
+        design_id=uuid.uuid4().hex; design['id']=design_id
+        with lock:
+            designs[design_id]=dict(dataset=metadata,options=payload,result=None,design=design)
+            while len(designs)>10: designs.popitem(last=False)
+            model_job=jobs.get(payload.get('job_id')) if isinstance(payload.get('job_id'),str) else None
+            if model_job is not None and model_job['status']=='done' and model_job['result']['features']==features:
+                model_job['design']=design
+        return jsonify(design)
+
+    @app.get('/api/jobs/<job_id>/report.pdf')
+    def report(job_id):
+        from report_export import make_report
+        return Response(make_report(trained_job(job_id)),mimetype='application/pdf',headers={'Content-Disposition':'attachment; filename=rapport-complet.pdf'})
+
+    @app.get('/api/designs/<design_id>/report.pdf')
+    def design_report(design_id):
+        from report_export import make_report
+        with lock: entry=designs.get(design_id)
+        if entry is None: raise ValueError('Générez le plan avant de télécharger le rapport.')
+        return Response(make_report(entry),mimetype='application/pdf',headers={'Content-Disposition':'attachment; filename=plan-complet.pdf'})
