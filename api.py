@@ -23,8 +23,7 @@ from study import prepare_study
 from design import generate_design
 from hardware import gpu_capabilities
 
-MAX_ROWS = 3000
-
+MAX_ROWS = 10_000
 
 def read_frame(source, filename):
     suffix = Path(filename).suffix.lower()
