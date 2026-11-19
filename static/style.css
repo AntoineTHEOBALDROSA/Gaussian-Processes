@@ -43,7 +43,7 @@ body{overflow-anchor:none}
 
 /* The results use the full workspace; configuration remains available in its tab. */
 .workspace.results-mode{grid-template-columns:minmax(0,1fr)}
-.workflow-nav{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:32px 0 26px}
+.workflow-nav{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 0 26px}
 .workflow-nav .steps{margin:0;flex-wrap:wrap}
 .secondary-button{border:1px solid #c8d6ea;border-radius:7px;background:white;color:#365782;padding:11px 16px;font-size:14px;font-weight:550;white-space:nowrap}
 .secondary-button:hover:not(:disabled){background:#edf3ff;border-color:#9bb7df}
